@@ -20,12 +20,12 @@ import (
 
 // nolint
 func init() {
-	db.RegisterIsRetryableFunc(&pg.Driver{}, func(err error) bool {
+	dbkit.RegisterIsRetryableFunc(&pg.Driver{}, func(err error) bool {
 		if pgErr, ok := err.(*pgconn.PgError); ok {
-			switch errCode := db.PostgresErrCode(pgErr.Code); errCode {
-			case db.PgxErrCodeDeadlockDetected:
+			switch errCode := dbkit.PostgresErrCode(pgErr.Code); errCode {
+			case dbkit.PgxErrCodeDeadlockDetected:
 				return true
-			case db.PgxErrCodeSerializationFailure:
+			case dbkit.PgxErrCodeSerializationFailure:
 				return true
 			}
 			if checkInvalidCachedPlanPgError(pgErr) {
@@ -38,7 +38,7 @@ func init() {
 
 // CheckPostgresError checks if the passed error relates to Postgres,
 // and it's internal code matches the one from the argument.
-func CheckPostgresError(err error, errCode db.PostgresErrCode) bool {
+func CheckPostgresError(err error, errCode dbkit.PostgresErrCode) bool {
 	if pgErr, ok := err.(*pgconn.PgError); ok {
 		return pgErr.Code == string(errCode)
 	}
@@ -63,6 +63,6 @@ func CheckInvalidCachedPlanError(err error) bool {
 // Source: https://github.com/jackc/pgconn/blob/9cf57526250f6cd3e6cbf4fd7269c882e66898ce/stmtcache/lru.go#L91-L103
 func checkInvalidCachedPlanPgError(pgErr *pgconn.PgError) bool {
 	return pgErr.Severity == "ERROR" &&
-		pgErr.Code == string(db.PgxErrFeatureNotSupported) &&
+		pgErr.Code == string(dbkit.PgxErrFeatureNotSupported) &&
 		pgErr.Message == "cached plan must not change result type"
 }

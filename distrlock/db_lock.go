@@ -33,12 +33,12 @@ type DBManagerOpts struct {
 }
 
 // NewDBManager creates new distributed lock manager that uses SQL database as a backend.
-func NewDBManager(dialect db.Dialect) (*DBManager, error) {
+func NewDBManager(dialect dbkit.Dialect) (*DBManager, error) {
 	return NewDBManagerWithOpts(dialect, DBManagerOpts{TableName: defaultTableName})
 }
 
 // NewDBManagerWithOpts is a more configurable version of the NewDBManager.
-func NewDBManagerWithOpts(dialect db.Dialect, opts DBManagerOpts) (*DBManager, error) {
+func NewDBManagerWithOpts(dialect dbkit.Dialect, opts DBManagerOpts) (*DBManager, error) {
 	q, err := newDBQueries(dialect, opts.TableName)
 	if err != nil {
 		return nil, err
@@ -136,7 +136,7 @@ func (l *DBLock) DoExclusively(
 	logger log.FieldLogger,
 	fn func(ctx context.Context) error,
 ) error {
-	if acquireLockErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+	if acquireLockErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 		return l.Acquire(ctx, tx, lockTTL)
 	}); acquireLockErr != nil {
 		return acquireLockErr
@@ -148,7 +148,7 @@ func (l *DBLock) DoExclusively(
 		// If the ctx is canceled, we should be able to release the lock.
 		releaseCtx, releaseCtxCancel := context.WithTimeout(context.Background(), releaseTimeout)
 		defer releaseCtxCancel()
-		if releaseLockErr := db.DoInTx(releaseCtx, dbConn, func(tx *sql.Tx) error {
+		if releaseLockErr := dbkit.DoInTx(releaseCtx, dbConn, func(tx *sql.Tx) error {
 			return l.Release(releaseCtx, tx)
 		}); releaseLockErr != nil {
 			logger.Error("failed to release db lock", log.Error(releaseLockErr))
@@ -172,7 +172,7 @@ func (l *DBLock) DoExclusively(
 			case <-periodicalExtensionDone:
 				return
 			case <-ticker.C:
-				if extendLockErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+				if extendLockErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 					return l.Extend(ctx, tx)
 				}); extendLockErr != nil {
 					logger.Error("failed to extend db lock", log.Error(extendLockErr))
@@ -223,9 +223,9 @@ type dbQueries struct {
 	intervalMaker func(interval time.Duration) string
 }
 
-func newDBQueries(dialect db.Dialect, tableName string) (dbQueries, error) {
+func newDBQueries(dialect dbkit.Dialect, tableName string) (dbQueries, error) {
 	switch dialect {
-	case db.DialectPostgres, db.DialectPgx:
+	case dbkit.DialectPostgres, dbkit.DialectPgx:
 		return dbQueries{
 			createTable:   fmt.Sprintf(postgresCreateTableQuery, tableName),
 			dropTable:     fmt.Sprintf(postgresDropTableQuery, tableName),
@@ -235,7 +235,7 @@ func newDBQueries(dialect db.Dialect, tableName string) (dbQueries, error) {
 			extendLock:    fmt.Sprintf(postgresExtendLockQuery, tableName),
 			intervalMaker: postgresMakeInterval,
 		}, nil
-	case db.DialectMySQL:
+	case dbkit.DialectMySQL:
 		return dbQueries{
 			createTable:   fmt.Sprintf(mySQLCreateTableQuery, tableName),
 			dropTable:     fmt.Sprintf(mySQLDropTableQuery, tableName),

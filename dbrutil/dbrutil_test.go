@@ -32,9 +32,9 @@ INSERT INTO users(name) VALUES("Albert"), ("Bob"), ("John"), ("Sam"), ("Sam");
 func openAndSeedDB(t *testing.T) *dbr.Connection {
 	t.Helper()
 
-	cfg := &db.Config{
-		Dialect:         db.DialectSQLite,
-		SQLite:          db.SQLiteConfig{Path: "file::memory:?cache=shared"},
+	cfg := &dbkit.Config{
+		Dialect:         dbkit.DialectSQLite,
+		SQLite:          dbkit.SQLiteConfig{Path: "file::memory:?cache=shared"},
 		MaxOpenConns:    1,
 		MaxIdleConns:    1,
 		ConnMaxLifetime: 0,
@@ -146,25 +146,25 @@ func TestDbrQueryMetricsEventReceiver_TimingKv(t *testing.T) {
 	}()
 
 	t.Run("metrics for query with wrong annotation are not collected", func(t *testing.T) {
-		mc := db.NewMetricsCollector()
+		mc := dbkit.NewMetricsCollector()
 		metricsEventReceiver := NewQueryMetricsEventReceiver(mc, "query_")
 		dbSess := dbConn.NewSession(metricsEventReceiver)
 
 		countUsersByName(t, dbSess, "count_users_by_name", "Sam", 2)
 
-		labels := prometheus.Labels{db.MetricsLabelQuery: "count_users_by_name"}
+		labels := prometheus.Labels{dbkit.MetricsLabelQuery: "count_users_by_name"}
 		hist := mc.QueryDurations.With(labels).(prometheus.Histogram)
 		testutil.RequireSamplesCountInHistogram(t, hist, 0)
 	})
 
 	t.Run("metrics for query are collected", func(t *testing.T) {
-		mc := db.NewMetricsCollector()
+		mc := dbkit.NewMetricsCollector()
 		metricsEventReceiver := NewQueryMetricsEventReceiver(mc, "query_")
 		dbSess := dbConn.NewSession(metricsEventReceiver)
 
 		countUsersByName(t, dbSess, "query_count_users_by_name", "Sam", 2)
 
-		labels := prometheus.Labels{db.MetricsLabelQuery: "query_count_users_by_name"}
+		labels := prometheus.Labels{dbkit.MetricsLabelQuery: "query_count_users_by_name"}
 		hist := mc.QueryDurations.With(labels).(prometheus.Histogram)
 		testutil.RequireSamplesCountInHistogram(t, hist, 1)
 	})

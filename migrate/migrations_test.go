@@ -161,7 +161,7 @@ func TestMigrationsManager_Run(t *testing.T) {
 	require.NoError(t, err)
 	defer requireNoErrOnClose(t, dbConn)
 
-	migMngr, err := NewMigrationsManager(dbConn, db.DialectSQLite, logtest.NewLogger())
+	migMngr, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
 	require.NoError(t, err)
 	migrations := []Migration{newTestMigration00001CreateTables(), newTestMigration00002SeedTabled()}
 
@@ -182,7 +182,7 @@ func TestMigrationsManager_RunLimit(t *testing.T) {
 	require.NoError(t, err)
 	defer requireNoErrOnClose(t, dbConn)
 
-	migMngr, err := NewMigrationsManager(dbConn, db.DialectSQLite, logtest.NewLogger())
+	migMngr, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
 	require.NoError(t, err)
 	migrations := []Migration{newTestMigration00001CreateTables(), newTestMigration00002SeedTabled()}
 
@@ -207,7 +207,7 @@ func TestMigrationsManager_Status(t *testing.T) {
 	require.NoError(t, err)
 	defer requireNoErrOnClose(t, dbConn)
 
-	migMngr, err := NewMigrationsManager(dbConn, db.DialectSQLite, logtest.NewLogger())
+	migMngr, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
 	require.NoError(t, err)
 
 	migStatus, err := migMngr.Status()
@@ -236,7 +236,7 @@ func TestCreationMigrationManagerWithOpts(t *testing.T) {
 
 	migMngr, err := NewMigrationsManagerWithOpts(
 		dbConn,
-		db.DialectSQLite,
+		dbkit.DialectSQLite,
 		logtest.NewLogger(),
 		MigrationsManagerOpts{TableName: tableName},
 	)
@@ -271,7 +271,7 @@ func TestMigrationsManager_supportRawMigration(t *testing.T) {
 	require.NoError(t, err)
 	defer requireNoErrOnClose(t, dbConn)
 
-	migMngr, err := NewMigrationsManager(dbConn, db.DialectSQLite, logtest.NewLogger())
+	migMngr, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
 	require.NoError(t, err)
 	migrations := []Migration{
 		newTestMigration00001CreateTables(),

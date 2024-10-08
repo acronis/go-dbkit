@@ -24,33 +24,33 @@ import (
 func TestMakePostgresDSN(t *gotesting.T) {
 	tests := []struct {
 		Name    string
-		Cfg     *db.PostgresConfig
+		Cfg     *dbkit.PostgresConfig
 		WantDSN string
 	}{
 		{
 			Name: "search_path is used",
-			Cfg: &db.PostgresConfig{
+			Cfg: &dbkit.PostgresConfig{
 				Host:                 "pghost",
 				Port:                 5433,
 				User:                 "pgadmin",
 				Password:             "pgpassword",
 				Database:             "pgdb",
-				SSLMode:              db.PostgresSSLModeRequire,
+				SSLMode:              dbkit.PostgresSSLModeRequire,
 				SearchPath:           "pgsearch",
-				AdditionalParameters: []db.Parameter{{"param1", "foo"}, {"param2", "bar"}},
+				AdditionalParameters: []dbkit.Parameter{{"param1", "foo"}, {"param2", "bar"}},
 			},
 			WantDSN: "postgres://pgadmin:pgpassword@pghost:5433/pgdb?sslmode=require&search_path=pgsearch&param1=foo&param2=bar",
 		},
 		{
 			Name: "base",
-			Cfg: &db.PostgresConfig{
+			Cfg: &dbkit.PostgresConfig{
 				Host:                 "pghost",
 				Port:                 5433,
 				User:                 "pgadmin",
 				Password:             "pgpassword",
 				Database:             "pgdb",
-				SSLMode:              db.PostgresSSLModeRequire,
-				AdditionalParameters: []db.Parameter{{"param1", "Lorem ipsum"}},
+				SSLMode:              dbkit.PostgresSSLModeRequire,
+				AdditionalParameters: []dbkit.Parameter{{"param1", "Lorem ipsum"}},
 			},
 			WantDSN: "postgres://pgadmin:pgpassword@pghost:5433/pgdb?sslmode=require&param1=Lorem+ipsum",
 		},
@@ -58,18 +58,18 @@ func TestMakePostgresDSN(t *gotesting.T) {
 	for i := range tests {
 		tt := tests[i]
 		t.Run(tt.Name, func(t *gotesting.T) {
-			require.Equal(t, db.MakePostgresDSN(tt.Cfg), tt.WantDSN)
+			require.Equal(t, dbkit.MakePostgresDSN(tt.Cfg), tt.WantDSN)
 		})
 	}
 }
 
 func TestPostgresIsRetryable(t *gotesting.T) {
-	isRetryable := db.GetIsRetryable(&pg.Driver{})
+	isRetryable := dbkit.GetIsRetryable(&pg.Driver{})
 	require.NotNil(t, isRetryable)
 	// enum all retriable errors
-	retriable := []db.PostgresErrCode{
-		db.PgxErrCodeDeadlockDetected,
-		db.PgxErrCodeSerializationFailure,
+	retriable := []dbkit.PostgresErrCode{
+		dbkit.PgxErrCodeDeadlockDetected,
+		dbkit.PgxErrCodeSerializationFailure,
 	}
 	for _, code := range retriable {
 		var err error
@@ -88,7 +88,7 @@ func TestCheckInvalidCachedPlanError(t *gotesting.T) {
 	ctx, ctxCancel := context.WithTimeout(context.Background(), time.Minute*2)
 	defer ctxCancel()
 
-	conn, stop := testing.MustRunAndOpenTestDB(ctx, string(db.DialectPgx))
+	conn, stop := testing.MustRunAndOpenTestDB(ctx, string(dbkit.DialectPgx))
 	defer func() { require.NoError(t, stop(ctx)) }()
 
 	// Create a table and fill it with some data.

@@ -18,7 +18,7 @@ import (
 )
 
 func TestMSSQLIsRetryable(t *testing.T) {
-	isRetryable := db.GetIsRetryable(&mssql.Driver{})
+	isRetryable := dbkit.GetIsRetryable(&mssql.Driver{})
 	require.NotNil(t, isRetryable)
 	require.True(t, isRetryable(mssql.Error{Number: 1205}))
 	require.False(t, isRetryable(driver.ErrBadConn))

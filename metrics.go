@@ -4,7 +4,7 @@ Copyright © 2024 Acronis International GmbH.
 Released under MIT license.
 */
 
-package db
+package dbkit
 
 import "github.com/prometheus/client_golang/prometheus"
 

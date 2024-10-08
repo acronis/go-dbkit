@@ -14,8 +14,8 @@ import (
 )
 
 func TestDeadlockErrorHandling(t *testing.T) {
-	testing2.DeadlockTest(t, db.DialectPostgres,
+	testing2.DeadlockTest(t, dbkit.DialectPostgres,
 		func(err error) bool {
-			return CheckPostgresError(err, db.PostgresErrCodeDeadlockDetected)
+			return CheckPostgresError(err, dbkit.PostgresErrCodeDeadlockDetected)
 		})
 }

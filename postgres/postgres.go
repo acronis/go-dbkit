@@ -19,13 +19,13 @@ import (
 
 // nolint
 func init() {
-	db.RegisterIsRetryableFunc(&pg.Driver{}, func(err error) bool {
+	dbkit.RegisterIsRetryableFunc(&pg.Driver{}, func(err error) bool {
 		if pgErr, ok := err.(*pg.Error); ok {
-			name := db.PostgresErrCode(pgErr.Code.Name())
+			name := dbkit.PostgresErrCode(pgErr.Code.Name())
 			switch name {
-			case db.PostgresErrCodeDeadlockDetected:
+			case dbkit.PostgresErrCodeDeadlockDetected:
 				return true
-			case db.PostgresErrCodeSerializationFailure:
+			case dbkit.PostgresErrCodeSerializationFailure:
 				return true
 			}
 		}
@@ -35,7 +35,7 @@ func init() {
 
 // CheckPostgresError checks if the passed error relates to Postgres and it's internal code matches the one from the argument.
 // nolint: staticcheck // lib/pq using is deprecated. Use pgx Postgres driver.
-func CheckPostgresError(err error, errCode db.PostgresErrCode) bool {
+func CheckPostgresError(err error, errCode dbkit.PostgresErrCode) bool {
 	if pgErr, ok := err.(*pg.Error); ok {
 		return pgErr.Code.Name() == string(errCode)
 	}

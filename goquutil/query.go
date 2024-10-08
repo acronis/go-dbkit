@@ -213,7 +213,7 @@ func prepareSelectsForCompositeRecord(query *goqu.SelectDataset, structTyp inter
 		return cols[i].col < cols[j].col
 	})
 
-	dialectSqlite := query.Dialect().Dialect() == string(db.DialectSQLite)
+	dialectSqlite := query.Dialect().Dialect() == string(dbkit.DialectSQLite)
 	for i := range cols {
 		col, defaultV := cols[i].col, cols[i].defaultV
 		var selectExp exp.Expression
