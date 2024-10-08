@@ -1,0 +1,9 @@
+exclude:
+  - message: Exclude tests
+    paths:
+      - dsn_test.go
+      - pgx/postgres_test.go
+
+  - message: Skip commit hashes
+    id: high-entropy
+    pattern: 9cf57526250f6cd3e6cbf4fd7269c882e66898ce
