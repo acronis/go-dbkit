@@ -1,4 +1,5 @@
 name: Lint
+
 on:
   push:
     branches:
@@ -6,10 +7,13 @@ on:
   pull_request:
     branches:
       - main
+
 permissions:
   contents: read
+
 jobs:
   lint:
+    name: Lint
     strategy:
       matrix:
         go: [ '1.20' ]
