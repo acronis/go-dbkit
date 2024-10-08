@@ -19,7 +19,7 @@ import (
 )
 
 // DeadlockTest is internal function to simulate DB deadlock
-func DeadlockTest(t *testing.T, dialect db.Dialect, checkDeadlockErr func(err error) bool) {
+func DeadlockTest(t *testing.T, dialect dbkit.Dialect, checkDeadlockErr func(err error) bool) {
 	ctx, ctxCancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer ctxCancel()
 	dbConn, stop := MustRunAndOpenTestDB(ctx, string(dialect))
@@ -50,7 +50,7 @@ func DeadlockTest(t *testing.T, dialect db.Dialect, checkDeadlockErr func(err er
 	go func(ctx context.Context) {
 		defer done.Done()
 
-		tx1Err = db.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
+		tx1Err = dbkit.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(fmt.Sprintf("UPDATE %s SET name=$1 WHERE id=$2", table1Name), "test100", 1); err != nil {
 				return err
 			}
@@ -66,7 +66,7 @@ func DeadlockTest(t *testing.T, dialect db.Dialect, checkDeadlockErr func(err er
 	done.Add(1)
 	go func(ctx context.Context) {
 		defer done.Done()
-		tx2Err = db.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
+		tx2Err = dbkit.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(fmt.Sprintf("UPDATE %s SET name=$1 WHERE id=$2", table2Name), "test100", 1); err != nil {
 				return err
 			}
@@ -96,7 +96,7 @@ func DeadlockTest(t *testing.T, dialect db.Dialect, checkDeadlockErr func(err er
 }
 
 func cleanupDB(ctx context.Context, dbConn *sql.DB, table1Name string, table2Name string) error {
-	return db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+	return dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 		if _, err := tx.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s;", table1Name)); err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func cleanupDB(ctx context.Context, dbConn *sql.DB, table1Name string, table2Nam
 }
 
 func createTables(ctx context.Context, dbConn *sql.DB, table2Name string, table1Name string) error {
-	tErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+	tErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 		_, err := tx.Exec(fmt.Sprintf("CREATE TABLE %s (id INTEGER NOT NULL PRIMARY KEY, name TEXT NOT NULL);", table2Name))
 		if err != nil {
 			return err

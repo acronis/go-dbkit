@@ -58,7 +58,7 @@ type TxDisabler interface {
 // NullMigration represents an empty basic migration that may be embedded in regular migrations
 // in order to write less code for satisfying the Migration interface.
 type NullMigration struct {
-	Dialect db.Dialect
+	Dialect dbkit.Dialect
 }
 
 // ID is a stub that returns empty migration identifier.
@@ -128,7 +128,7 @@ func (m *CustomMigration) DownFn() func(tx *sql.Tx) error {
 // MigrationsManager is an object for running migrations.
 type MigrationsManager struct {
 	db      *sql.DB
-	Dialect db.Dialect
+	Dialect dbkit.Dialect
 	migSet  migrate.MigrationSet
 	logger  log.FieldLogger
 }
@@ -139,7 +139,7 @@ type MigrationsManagerOpts struct {
 }
 
 // NewMigrationsManager creates a new MigrationsManager.
-func NewMigrationsManager(dbConn *sql.DB, dialect db.Dialect, logger log.FieldLogger) (*MigrationsManager, error) {
+func NewMigrationsManager(dbConn *sql.DB, dialect dbkit.Dialect, logger log.FieldLogger) (*MigrationsManager, error) {
 	migSet := migrate.MigrationSet{TableName: MigrationsTableName}
 	return &MigrationsManager{dbConn, normalizeDialect(dialect), migSet, logger}, nil
 }
@@ -147,7 +147,7 @@ func NewMigrationsManager(dbConn *sql.DB, dialect db.Dialect, logger log.FieldLo
 // NewMigrationsManagerWithOpts creates a new MigrationsManager with custom options
 func NewMigrationsManagerWithOpts(
 	dbConn *sql.DB,
-	dialect db.Dialect,
+	dialect dbkit.Dialect,
 	logger log.FieldLogger,
 	opts MigrationsManagerOpts,
 ) (*MigrationsManager, error) {
@@ -160,9 +160,9 @@ func NewMigrationsManagerWithOpts(
 }
 
 // TODO: normalizeDialect sets standard lib/pq driver for pgx dialect because pgx isn't supported by sql-migrate yet.
-func normalizeDialect(dialect db.Dialect) db.Dialect {
-	if dialect == db.DialectPgx {
-		return db.DialectPostgres
+func normalizeDialect(dialect dbkit.Dialect) dbkit.Dialect {
+	if dialect == dbkit.DialectPgx {
+		return dbkit.DialectPostgres
 	}
 	return dialect
 }

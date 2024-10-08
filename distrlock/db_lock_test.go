@@ -32,27 +32,27 @@ import (
 )
 
 func TestDBManager_Postgres(t *gotesting.T) {
-	runDBManagerTests(t, db.DialectPostgres)
+	runDBManagerTests(t, dbkit.DialectPostgres)
 }
 
 func TestDBManager_Pgx(t *gotesting.T) {
-	runDBManagerTests(t, db.DialectPgx)
+	runDBManagerTests(t, dbkit.DialectPgx)
 }
 
 func TestDBManager_MySQL(t *gotesting.T) {
-	runDBManagerTests(t, db.DialectMySQL)
+	runDBManagerTests(t, dbkit.DialectMySQL)
 }
 
 func TestDBLock_DoExclusively_Postgres(t *gotesting.T) {
-	runDBLockDoExclusivelyTests(t, db.DialectPostgres)
+	runDBLockDoExclusivelyTests(t, dbkit.DialectPostgres)
 }
 
 func TestDBLock_DoExclusively_MySQL(t *gotesting.T) {
-	runDBLockDoExclusivelyTests(t, db.DialectMySQL)
+	runDBLockDoExclusivelyTests(t, dbkit.DialectMySQL)
 }
 
 //nolint:gocyclo
-func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
+func runDBManagerTests(t *gotesting.T, dialect dbkit.Dialect) {
 	containerCtx, containerCtxClose := context.WithTimeout(context.Background(), time.Minute*2)
 	defer containerCtxClose()
 
@@ -107,13 +107,13 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 			require.Error(t, acquireErr)
 			require.Empty(t, lock2.Token())
 			switch dialect {
-			case db.DialectMySQL:
+			case dbkit.DialectMySQL:
 				require.ErrorIs(t, acquireErr, context.DeadlineExceeded)
-			case db.DialectPostgres:
-				// In Postgres case "canceling statement due to user request" error will be returned
+			case dbkit.DialectPostgres:
+				// In the Postgres' case "canceling statement due to user request" error will be returned
 				// instead of context.DeadlineExceeded (pq "feature").
 				require.ErrorContains(t, acquireErr, "canceling statement due to user request")
-			case db.DialectPgx:
+			case dbkit.DialectPgx:
 				require.ErrorIs(t, acquireErr, context.DeadlineExceeded)
 			}
 		})
@@ -157,16 +157,16 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		defer ctxCancel()
 
 		var lock DBLock
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			return err
 		}))
 
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Acquire(ctx, tx, lockTimeout)
 		}))
 
-		acquireErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		acquireErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Acquire(ctx, tx, lockTimeout)
 		})
 		require.Error(t, acquireErr)
@@ -182,29 +182,29 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		defer ctxCancel()
 
 		var lock DBLock
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			return err
 		}))
 
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Acquire(ctx, tx, lockTimeout)
 		}))
 
 		// It must be impossible to acquire not released lock twice.
-		acquireErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		acquireErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Acquire(ctx, tx, lockTimeout)
 		})
 		require.Error(t, acquireErr)
 		require.ErrorIs(t, acquireErr, ErrLockAlreadyAcquired)
 
 		// However after unlock ...
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Release(ctx, tx)
 		}))
 
 		// ... it must be possible to acquire the same lock at the second time.
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Acquire(ctx, tx, lockTimeout)
 		}))
 	})
@@ -220,7 +220,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 
 		locks := make([]DBLock, locksNum)
 		for i := 0; i < locksNum; i++ {
-			require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+			require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 				locks[i], err = dbManager.NewLock(ctx, tx, lockKey) //nolint:scopelint
 				return err
 			}))
@@ -232,7 +232,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 			wg.Add(1)
 			go func(lock DBLock) {
 				defer wg.Done()
-				errs <- db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+				errs <- dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 					return lock.Acquire(ctx, tx, lockTimeout)
 				})
 			}(locks[i])
@@ -262,7 +262,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 
 		locks := make([]DBLock, locksNum)
 		for i := 0; i < locksNum; i++ {
-			require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+			require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 				locks[i], err = dbManager.NewLock(ctx, tx, lockKey) //nolint:scopelint
 				return err
 			}))
@@ -277,7 +277,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 				defer wg.Done()
 				// Continuously trying to acquire the lock.
 				for {
-					acquireErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+					acquireErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 						return lock.Acquire(ctx, tx, lockTimeout)
 					})
 					if acquireErr == nil {
@@ -298,7 +298,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 				}
 
 				// Release as soon as we got it locked.
-				releaseErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+				releaseErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 					return lock.Release(ctx, tx)
 				})
 				if releaseErr != nil {
@@ -324,7 +324,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		defer ctxCancel()
 
 		var lock DBLock
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			if err != nil {
 				return
@@ -335,7 +335,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		// wait for a timeout
 		time.Sleep(lockTimeout * 2)
 
-		releaseErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		releaseErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Release(ctx, tx)
 		})
 		require.ErrorIs(t, releaseErr, ErrLockAlreadyReleased)
@@ -351,7 +351,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		defer ctxCancel()
 
 		var lock DBLock
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			if err != nil {
 				return
@@ -360,7 +360,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		}))
 
 		// must be able to acquire the lock with the same token
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			if err != nil {
 				return
@@ -368,11 +368,11 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 			return lock.AcquireWithStaticToken(ctx, tx, token, lockTTL)
 		}))
 
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Release(ctx, tx)
 		}))
 
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			if err != nil {
 				return
@@ -380,7 +380,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 			return lock.Acquire(ctx, tx, lockTTL)
 		}))
 
-		acquireErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		acquireErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.AcquireWithStaticToken(ctx, tx, token, lockTTL)
 		})
 		require.ErrorIs(t, acquireErr, ErrLockAlreadyAcquired, "it must be impossible to acquire already acquired lock with different token")
@@ -411,14 +411,13 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 
 			acquireErr := lock2.Acquire(ctx, tx2, lockTimeout)
 			require.Error(t, acquireErr)
-			if dialect != db.DialectPostgres {
+			if dialect != dbkit.DialectPostgres {
 				require.ErrorIs(t, acquireErr, context.DeadlineExceeded)
 			} else {
-				if ctx.Err() == nil {
-					require.ErrorContains(t, acquireErr, "canceling statement due to user request")
-				} else {
-					require.ErrorIs(t, acquireErr, context.DeadlineExceeded)
-				}
+				require.Truef(t,
+					strings.Contains(acquireErr.Error(), "canceling statement due to user request") ||
+						errors.Is(acquireErr, context.DeadlineExceeded),
+					"unexpected error: %v", acquireErr)
 			}
 			require.Empty(t, lock2.Token())
 		},
@@ -433,7 +432,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		defer ctxCancel()
 
 		var lock DBLock
-		require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+		require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 			lock, err = dbManager.NewLock(ctx, tx, lockKey)
 			if err != nil {
 				return
@@ -444,7 +443,7 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		// Extend lock 3 times.
 		for i := 0; i < 3; i++ {
 			time.Sleep(lockTimeout / 2)
-			require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+			require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 				return lock.Extend(ctx, tx)
 			}))
 		}
@@ -452,14 +451,14 @@ func runDBManagerTests(t *gotesting.T, dialect db.Dialect) {
 		// Wait while lock will be released by timeout.
 		time.Sleep(lockTimeout * 2)
 
-		extendErr := db.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+		extendErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			return lock.Extend(ctx, tx)
 		})
 		require.ErrorIs(t, extendErr, ErrLockAlreadyReleased)
 	})
 }
 
-func runDBLockDoExclusivelyTests(t *gotesting.T, dialect db.Dialect) {
+func runDBLockDoExclusivelyTests(t *gotesting.T, dialect dbkit.Dialect) {
 	containerCtx, containerCtxClose := context.WithTimeout(context.Background(), time.Minute*2)
 	defer containerCtxClose()
 
@@ -555,13 +554,13 @@ func makeTwoLocks(
 ) (lock1, lock2 DBLock) {
 	t.Helper()
 
-	require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+	require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 		lock1, err = dbManager.NewLock(ctx, tx, key1)
 		return err
 	}))
 	require.Equal(t, key1, lock1.Key)
 
-	require.NoError(t, db.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
+	require.NoError(t, dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) (err error) {
 		lock2, err = dbManager.NewLock(ctx, tx, key2)
 		return err
 	}))
@@ -570,21 +569,21 @@ func makeTwoLocks(
 	return
 }
 
-func assertRollbackWithCtxTimeoutError(t *gotesting.T, dialect db.Dialect, tx *sql.Tx) func() {
+func assertRollbackWithCtxTimeoutError(t *gotesting.T, dialect dbkit.Dialect, tx *sql.Tx) func() {
 	return func() {
 		rollbackErr := tx.Rollback()
 		var ok bool
 		switch dialect {
-		case db.DialectMySQL:
+		case dbkit.DialectMySQL:
 			ok = assert.True(t, errors.Is(rollbackErr, sql.ErrTxDone) ||
 				errors.Is(rollbackErr, mysql.ErrInvalidConn) ||
 				rollbackErr == nil, // Rollback sometimes can return nil error in case of mysql driver .
 			)
-		case db.DialectPostgres:
+		case dbkit.DialectPostgres:
 			ok = assert.True(t, errors.Is(rollbackErr, sql.ErrTxDone) ||
 				errors.Is(rollbackErr, driver.ErrBadConn) ||
 				strings.Contains(rollbackErr.Error(), "canceling statement due to user request"))
-		case db.DialectPgx:
+		case dbkit.DialectPgx:
 			ok = assert.True(t, errors.Is(rollbackErr, sql.ErrTxDone) ||
 				errors.Is(rollbackErr, context.DeadlineExceeded) ||
 				strings.Contains(rollbackErr.Error(), "conn closed"), // Pgx may return `conn closed` error when context timeout exceeded.

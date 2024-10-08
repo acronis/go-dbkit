@@ -18,7 +18,7 @@ import (
 )
 
 func TestMakeMySQLDSN(t *testing.T) {
-	cfg := &db.MySQLConfig{
+	cfg := &dbkit.MySQLConfig{
 		Host:     "myhost",
 		Port:     3307,
 		User:     "myadmin",
@@ -26,12 +26,12 @@ func TestMakeMySQLDSN(t *testing.T) {
 		Database: "mydb",
 	}
 	wantDSN := "myadmin:mypassword@tcp(myhost:3307)/mydb?multiStatements=true&parseTime=true&autocommit=false"
-	gotDSN := db.MakeMySQLDSN(cfg)
+	gotDSN := dbkit.MakeMySQLDSN(cfg)
 	require.Equal(t, wantDSN, gotDSN)
 }
 
 func TestMysqlIsRetryable(t *testing.T) {
-	isRetryable := db.GetIsRetryable(&mysql.MySQLDriver{})
+	isRetryable := dbkit.GetIsRetryable(&mysql.MySQLDriver{})
 	require.NotNil(t, isRetryable)
 	require.True(t, isRetryable(&mysql.MySQLError{
 		Number: uint16(MySQLErrDeadlock),

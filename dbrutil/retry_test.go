@@ -21,9 +21,9 @@ import (
 
 // Test that retriable errors stays retriable even wrapped in Tx structures
 func TestTxErrorsIsRetriable(t *testing.T) {
-	retriable := []db.PostgresErrCode{
-		db.PgxErrCodeDeadlockDetected,
-		db.PgxErrCodeSerializationFailure,
+	retriable := []dbkit.PostgresErrCode{
+		dbkit.PgxErrCodeDeadlockDetected,
+		dbkit.PgxErrCodeSerializationFailure,
 	}
 
 	mkerr := func(code string) []error {
@@ -34,7 +34,7 @@ func TestTxErrorsIsRetriable(t *testing.T) {
 		}
 	}
 
-	check := db.GetIsRetryable(&pg.Driver{})
+	check := dbkit.GetIsRetryable(&pg.Driver{})
 
 	for _, c := range retriable {
 		for _, err := range mkerr(string(c)) {

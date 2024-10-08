@@ -51,7 +51,7 @@ func TestSqliteRetryOnBusyError(t *testing.T) {
 	var attempts int
 	var firstErr error
 	backOffPolicy := retry.NewConstantBackoffPolicy(time.Millisecond*busyTimeoutMs/2, 10)
-	require.NoError(t, retry.DoWithRetry(context.Background(), backOffPolicy, db.GetIsRetryable(dbConn2.Driver()), nil, func(ctx context.Context) error {
+	require.NoError(t, retry.DoWithRetry(context.Background(), backOffPolicy, dbkit.GetIsRetryable(dbConn2.Driver()), nil, func(ctx context.Context) error {
 		attempts++
 		execErr := execInTx(ctx, dbConn2, `insert into foo values (2, "two")`)
 		if firstErr == nil {
@@ -94,7 +94,7 @@ func TestSqliteRetryOnBusyErrorTimedOut(t *testing.T) {
 	var attempts int
 	var firstErr error
 	backOffPolicy := retry.NewConstantBackoffPolicy(time.Millisecond*busyTimeoutMs/2, 10)
-	err = retry.DoWithRetry(ctx, backOffPolicy, db.GetIsRetryable(dbConn2.Driver()), nil, func(ctx context.Context) error {
+	err = retry.DoWithRetry(ctx, backOffPolicy, dbkit.GetIsRetryable(dbConn2.Driver()), nil, func(ctx context.Context) error {
 		attempts++
 		execErr := execInTx(ctx, dbConn2, `insert into foo values (2, "two")`)
 		if firstErr == nil {
@@ -118,7 +118,7 @@ func TestNoRetryOnOtherErrors(t *testing.T) {
 
 	var attempts int
 	backOffPolicy := retry.NewConstantBackoffPolicy(time.Millisecond, 10)
-	err = retry.DoWithRetry(context.Background(), backOffPolicy, db.GetIsRetryable(dbConn.Driver()), nil, func(ctx context.Context) error {
+	err = retry.DoWithRetry(context.Background(), backOffPolicy, dbkit.GetIsRetryable(dbConn.Driver()), nil, func(ctx context.Context) error {
 		attempts++
 		_, err = dbConn.Exec(`drop table foo`)
 		return err
@@ -128,7 +128,7 @@ func TestNoRetryOnOtherErrors(t *testing.T) {
 }
 
 func TestSqliteIsRetryable(t *testing.T) {
-	isRetryable := db.GetIsRetryable(&sqlite3.SQLiteDriver{})
+	isRetryable := dbkit.GetIsRetryable(&sqlite3.SQLiteDriver{})
 	require.NotNil(t, isRetryable)
 	require.True(t, isRetryable(sqlite3.Error{
 		Code: sqlite3.ErrBusy,
@@ -173,11 +173,11 @@ func execInTx(ctx context.Context, dbConn *sql.DB, stmt string) error {
 
 func TestConfig(t *testing.T) {
 	t.Run("read sqlite parameters", func(t *testing.T) {
-		allDialects := []db.Dialect{
-			db.DialectSQLite,
-			db.DialectMySQL,
-			db.DialectPostgres,
-			db.DialectMSSQL,
+		allDialects := []dbkit.Dialect{
+			dbkit.DialectSQLite,
+			dbkit.DialectMySQL,
+			dbkit.DialectPostgres,
+			dbkit.DialectMSSQL,
 		}
 
 		cfgData := bytes.NewBufferString(`
@@ -189,13 +189,13 @@ db:
   sqlite3:
     path: ":memory:"
 `)
-		cfg := db.NewConfig(allDialects)
+		cfg := dbkit.NewConfig(allDialects)
 		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
 		require.NoError(t, err)
 		require.Equal(t, 20, cfg.MaxOpenConns)
 		require.Equal(t, 10, cfg.MaxIdleConns)
 		require.Equal(t, time.Minute, cfg.ConnMaxLifetime)
-		require.Equal(t, db.DialectSQLite, cfg.Dialect)
+		require.Equal(t, dbkit.DialectSQLite, cfg.Dialect)
 		require.Equal(t, ":memory:", cfg.SQLite.Path)
 		require.Equal(t, sql.LevelDefault, cfg.TxIsolationLevel())
 	})

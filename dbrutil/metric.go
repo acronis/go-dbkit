@@ -25,13 +25,13 @@ type QueryMetricsEventReceiverOpts struct {
 // To be collected SQL query should be annotated (comment starting with specified prefix).
 type QueryMetricsEventReceiver struct {
 	*dbr.NullEventReceiver
-	metricsCollector   *db.MetricsCollector
+	metricsCollector   *dbkit.MetricsCollector
 	annotationPrefix   string
 	annotationModifier func(string) string
 }
 
 // NewQueryMetricsEventReceiverWithOpts creates a new QueryMetricsEventReceiver with additinal options.
-func NewQueryMetricsEventReceiverWithOpts(mc *db.MetricsCollector, options QueryMetricsEventReceiverOpts) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.MetricsCollector, options QueryMetricsEventReceiverOpts) *QueryMetricsEventReceiver {
 	return &QueryMetricsEventReceiver{
 		metricsCollector:   mc,
 		annotationPrefix:   options.AnnotationPrefix,
@@ -40,7 +40,7 @@ func NewQueryMetricsEventReceiverWithOpts(mc *db.MetricsCollector, options Query
 }
 
 // NewQueryMetricsEventReceiver creates a new QueryMetricsEventReceiver.
-func NewQueryMetricsEventReceiver(mc *db.MetricsCollector, annotationPrefix string) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiver(mc *dbkit.MetricsCollector, annotationPrefix string) *QueryMetricsEventReceiver {
 	options := QueryMetricsEventReceiverOpts{
 		AnnotationPrefix: annotationPrefix,
 	}
@@ -54,6 +54,6 @@ func (er *QueryMetricsEventReceiver) TimingKv(eventName string, nanoseconds int6
 	if annotation == "" {
 		return
 	}
-	labels := prometheus.Labels{db.MetricsLabelQuery: annotation}
+	labels := prometheus.Labels{dbkit.MetricsLabelQuery: annotation}
 	er.metricsCollector.QueryDurations.With(labels).Observe(time.Duration(nanoseconds).Seconds())
 }

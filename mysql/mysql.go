@@ -21,7 +21,7 @@ import (
 
 // nolint
 func init() {
-	db.RegisterIsRetryableFunc(&mysql.MySQLDriver{}, func(err error) bool {
+	dbkit.RegisterIsRetryableFunc(&mysql.MySQLDriver{}, func(err error) bool {
 		if mysqlErr, ok := err.(*mysql.MySQLError); ok {
 			switch mysqlErr.Number {
 			case uint16(MySQLErrDeadlock), uint16(MySQLErrLockTimedOut):

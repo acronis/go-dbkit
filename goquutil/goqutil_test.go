@@ -58,9 +58,9 @@ type ItemWithUser struct {
 func openAndSeedDB(t *testing.T) *DB {
 	t.Helper()
 
-	cfg := &db.Config{
-		Dialect:         db.DialectSQLite,
-		SQLite:          db.SQLiteConfig{Path: "file::memory:?cache=shared"},
+	cfg := &dbkit.Config{
+		Dialect:         dbkit.DialectSQLite,
+		SQLite:          dbkit.SQLiteConfig{Path: "file::memory:?cache=shared"},
 		MaxOpenConns:    1,
 		MaxIdleConns:    1,
 		ConnMaxLifetime: 0,
@@ -68,7 +68,7 @@ func openAndSeedDB(t *testing.T) *DB {
 
 	dbConn, err := sql.Open("sqlite3", ":memory:")
 	require.NoError(t, err)
-	require.NoError(t, db.InitOpenedDB(dbConn, cfg, false))
+	require.NoError(t, dbkit.InitOpenedDB(dbConn, cfg, false))
 
 	_, err = dbConn.Exec(sqlCreateAndSeedTestUsersTable)
 	require.NoError(t, err)

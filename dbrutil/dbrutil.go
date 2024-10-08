@@ -25,14 +25,14 @@ import (
 
 // Open opens database (using dbr query builder) with specified configuration parameters
 // and verifies (if ping argument is true) that connection can be established.
-func Open(cfg *db.Config, ping bool, eventReceiver dbr.EventReceiver) (*dbr.Connection, error) {
+func Open(cfg *dbkit.Config, ping bool, eventReceiver dbr.EventReceiver) (*dbr.Connection, error) {
 	driver, dsn := cfg.DriverNameAndDSN()
 	conn, err := dbr.Open(driver, dsn, eventReceiver)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := db.InitOpenedDB(conn.DB, cfg, ping); err != nil {
+	if err := dbkit.InitOpenedDB(conn.DB, cfg, ping); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +183,7 @@ func (s *RetryableTxSession) DoInTx(ctx context.Context, fn func(runner dbr.Sess
 			_ = s.log.EventErrKv("backoff", err, map[string]string{"duration_ms": strconv.Itoa(int(d.Milliseconds()))})
 		}
 	}
-	return retry.DoWithRetry(ctx, s.policy, db.GetIsRetryable(s.Driver()), notify, func(ctx context.Context) error {
+	return retry.DoWithRetry(ctx, s.policy, dbkit.GetIsRetryable(s.Driver()), notify, func(ctx context.Context) error {
 		return s.TxSession.DoInTx(ctx, fn)
 	})
 }

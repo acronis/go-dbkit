@@ -19,7 +19,7 @@ import (
 
 // nolint
 func init() {
-	db.RegisterIsRetryableFunc(&sqlite3.SQLiteDriver{}, func(err error) bool {
+	dbkit.RegisterIsRetryableFunc(&sqlite3.SQLiteDriver{}, func(err error) bool {
 		if sqliteErr, ok := err.(sqlite3.Error); ok {
 			switch sqliteErr.Code {
 			case sqlite3.ErrLocked, sqlite3.ErrBusy:

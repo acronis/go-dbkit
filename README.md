@@ -3,7 +3,7 @@
 ## Structure
 
 ### `/`
-Package `db` provides helpers for working with different SQL databases (MySQL, PostgreSQL, SQLite and MSSQL).
+Package `dbkit` provides helpers for working with different SQL databases (MySQL, PostgreSQL, SQLite and MSSQL).
 
 ### `/distrlock`
 Package distrlock contains DML (distributed lock manager) implementation (now DMLs based on MySQL and PostgreSQL are supported).

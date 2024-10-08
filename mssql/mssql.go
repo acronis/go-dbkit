@@ -19,7 +19,7 @@ import (
 
 // nolint
 func init() {
-	db.RegisterIsRetryableFunc(&mssql.Driver{}, func(err error) bool {
+	dbkit.RegisterIsRetryableFunc(&mssql.Driver{}, func(err error) bool {
 		if msErr, ok := err.(mssql.Error); ok {
 			if msErr.Number == int32(MSSQLErrDeadlock) { // deadlock error
 				return true
