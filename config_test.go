@@ -9,29 +9,36 @@ package dbkit
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"testing"
-
-	"github.com/stretchr/testify/require"
+	"time"
 
 	"github.com/acronis/go-appkit/config"
+	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/viper"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
+type AppConfig struct {
+	DB *Config `mapstructure:"db" json:"db" yaml:"db"`
+}
+
 func TestConfig(t *testing.T) {
-	allDialects := []Dialect{DialectSQLite, DialectMySQL, DialectPostgres, DialectPgx, DialectMSSQL}
+	supportedDialects := []Dialect{DialectSQLite, DialectMySQL, DialectPostgres, DialectPgx, DialectMSSQL}
 
-	t.Run("unknown dialect", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
+	tests := []struct {
+		name        string
+		cfgData     string
+		expectedCfg func() *Config
+	}{
+		{
+			name: "mysql dialect",
+			cfgData: `
 db:
-  dialect: fake-dialect
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.EqualError(t, err, `db.dialect: unknown value "fake-dialect", should be one of [sqlite3 mysql postgres pgx mssql]`)
-	})
-
-	t.Run("read mysql parameters", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
-db:
+  maxOpenConns: 20
+  maxIdleConns: 10
+  connMaxLifeTime: 2m
   dialect: mysql
   mysql:
     host: mysql-host
@@ -39,25 +46,26 @@ db:
     database: mysql_db
     user: mysql-user
     password: mysql-password
-    txLevel: Repeatable Read
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.NoError(t, err)
-		require.Equal(t, DialectMySQL, cfg.Dialect)
-		wantMySQLCfg := MySQLConfig{
-			Host:             "mysql-host",
-			Port:             3307,
-			Database:         "mysql_db",
-			User:             "mysql-user",
-			Password:         "mysql-password",
-			TxIsolationLevel: sql.LevelRepeatableRead,
-		}
-		require.Equal(t, wantMySQLCfg, cfg.MySQL)
-	})
-
-	t.Run("read postgres (lib/pq) parameters", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
+    txLevel: "Repeatable Read"
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectMySQL
+				cfg.MaxOpenConns = 20
+				cfg.MaxIdleConns = 10
+				cfg.ConnMaxLifetime = config.TimeDuration(2 * time.Minute)
+				cfg.MySQL.Host = "mysql-host"
+				cfg.MySQL.Port = 3307
+				cfg.MySQL.Database = "mysql_db"
+				cfg.MySQL.User = "mysql-user"
+				cfg.MySQL.Password = "mysql-password"
+				cfg.MySQL.TxIsolationLevel = IsolationLevel(sql.LevelRepeatableRead)
+				return cfg
+			},
+		},
+		{
+			name: "postgres dialect, github.com/lib/pq driver",
+			cfgData: `
 db:
   dialect: postgres
   postgres:
@@ -66,29 +74,27 @@ db:
     database: pg_db
     user: pg-user
     password: pg-password
-    txLevel: Repeatable Read
+    txLevel: "Read Committed"
     sslMode: verify-full
     searchPath: pg-search
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.NoError(t, err)
-		require.Equal(t, DialectPostgres, cfg.Dialect)
-		wantPostgresCfg := PostgresConfig{
-			Host:             "pg-host",
-			Port:             5433,
-			Database:         "pg_db",
-			User:             "pg-user",
-			Password:         "pg-password",
-			TxIsolationLevel: sql.LevelRepeatableRead,
-			SSLMode:          PostgresSSLModeVerifyFull,
-			SearchPath:       "pg-search",
-		}
-		require.Equal(t, wantPostgresCfg, cfg.Postgres)
-	})
-
-	t.Run("read postgres (pgx) parameters", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectPostgres
+				cfg.Postgres.Host = "pg-host"
+				cfg.Postgres.Port = 5433
+				cfg.Postgres.Database = "pg_db"
+				cfg.Postgres.User = "pg-user"
+				cfg.Postgres.Password = "pg-password"
+				cfg.Postgres.TxIsolationLevel = IsolationLevel(sql.LevelReadCommitted)
+				cfg.Postgres.SSLMode = PostgresSSLModeVerifyFull
+				cfg.Postgres.SearchPath = "pg-search"
+				return cfg
+			},
+		},
+		{
+			name: "postgres dialect, github.com/jackc/pgx driver",
+			cfgData: `
 db:
   dialect: pgx
   postgres:
@@ -97,30 +103,27 @@ db:
     database: pg_db
     user: pg-user
     password: pg-password
-    txLevel: Repeatable Read
+    txLevel: "Serializable"
     sslMode: verify-full
     searchPath: pg-search
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.NoError(t, err)
-		require.Equal(t, DialectPgx, cfg.Dialect)
-		wantPostgresCfg := PostgresConfig{
-			Host:                 "pg-host",
-			Port:                 5433,
-			Database:             "pg_db",
-			User:                 "pg-user",
-			Password:             "pg-password",
-			TxIsolationLevel:     sql.LevelRepeatableRead,
-			SSLMode:              PostgresSSLModeVerifyFull,
-			SearchPath:           "pg-search",
-			AdditionalParameters: []Parameter{{Name: "target_session_attrs", Value: "read-write"}},
-		}
-		require.Equal(t, wantPostgresCfg, cfg.Postgres)
-	})
-
-	t.Run("read postgres (pgx) parameters with overridden target_session_attrs", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectPgx
+				cfg.Postgres.Host = "pg-host"
+				cfg.Postgres.Port = 5433
+				cfg.Postgres.Database = "pg_db"
+				cfg.Postgres.User = "pg-user"
+				cfg.Postgres.Password = "pg-password"
+				cfg.Postgres.TxIsolationLevel = IsolationLevel(sql.LevelSerializable)
+				cfg.Postgres.SSLMode = PostgresSSLModeVerifyFull
+				cfg.Postgres.SearchPath = "pg-search"
+				return cfg
+			},
+		},
+		{
+			name: "postgres dialect, github.com/jackc/pgx driver, overridden target_session_attrs",
+			cfgData: `
 db:
   dialect: pgx
   postgres:
@@ -134,27 +137,25 @@ db:
     searchPath: pg-search
     additionalParameters:
       target_session_attrs: read-only
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.NoError(t, err)
-		require.Equal(t, DialectPgx, cfg.Dialect)
-		wantPostgresCfg := PostgresConfig{
-			Host:                 "pg-host",
-			Port:                 5433,
-			Database:             "pg_db",
-			User:                 "pg-user",
-			Password:             "pg-password",
-			TxIsolationLevel:     sql.LevelRepeatableRead,
-			SSLMode:              PostgresSSLModeVerifyFull,
-			SearchPath:           "pg-search",
-			AdditionalParameters: []Parameter{{Name: "target_session_attrs", Value: "read-only"}},
-		}
-		require.Equal(t, wantPostgresCfg, cfg.Postgres)
-	})
-
-	t.Run("read mssql parameters", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectPgx
+				cfg.Postgres.Host = "pg-host"
+				cfg.Postgres.Port = 5433
+				cfg.Postgres.Database = "pg_db"
+				cfg.Postgres.User = "pg-user"
+				cfg.Postgres.Password = "pg-password"
+				cfg.Postgres.TxIsolationLevel = IsolationLevel(sql.LevelRepeatableRead)
+				cfg.Postgres.SSLMode = PostgresSSLModeVerifyFull
+				cfg.Postgres.SearchPath = "pg-search"
+				cfg.Postgres.AdditionalParameters = map[string]string{"target_session_attrs": "read-only"}
+				return cfg
+			},
+		},
+		{
+			name: "mssql dialect",
+			cfgData: `
 db:
   dialect: mssql
   mssql:
@@ -164,70 +165,192 @@ db:
     user: mssql-user
     password: mssql-password
     txLevel: Repeatable Read
-`)
-		cfg := NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectMSSQL
+				cfg.MSSQL.Host = "mssql-host"
+				cfg.MSSQL.Port = 1433
+				cfg.MSSQL.Database = "mssql_db"
+				cfg.MSSQL.User = "mssql-user"
+				cfg.MSSQL.Password = "mssql-password"
+				cfg.MSSQL.TxIsolationLevel = IsolationLevel(sql.LevelRepeatableRead)
+				return cfg
+			},
+		},
+		{
+			name: "sqlite dialect",
+			cfgData: `
+db:
+  maxOpenConns: 20
+  maxIdleConns: 10
+  connMaxLifeTime: 1m
+  dialect: sqlite3
+  sqlite3:
+    path: ":memory:"
+`,
+			expectedCfg: func() *Config {
+				cfg := NewDefaultConfig(supportedDialects)
+				cfg.Dialect = DialectSQLite
+				cfg.MaxOpenConns = 20
+				cfg.MaxIdleConns = 10
+				cfg.ConnMaxLifetime = config.TimeDuration(time.Minute)
+				cfg.SQLite.Path = ":memory:"
+				return cfg
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, dataType := range []config.DataType{config.DataTypeYAML, config.DataTypeJSON} {
+				cfgData := tt.cfgData
+				if dataType == config.DataTypeJSON {
+					cfgData = string(mustYAMLToJSON([]byte(cfgData)))
+				}
+
+				// Load config using config.Loader.
+				appCfg := AppConfig{DB: NewDefaultConfig(supportedDialects)}
+				expectedAppCfg := AppConfig{DB: tt.expectedCfg()}
+				if expectedAppCfg.DB.Dialect == DialectPgx && expectedAppCfg.DB.Postgres.AdditionalParameters == nil {
+					expectedAppCfg.DB.Postgres.AdditionalParameters = map[string]string{"target_session_attrs": "read-write"}
+				}
+				cfgLoader := config.NewLoader(config.NewViperAdapter())
+				err := cfgLoader.LoadFromReader(bytes.NewBuffer([]byte(cfgData)), dataType, appCfg.DB)
+				require.NoError(t, err)
+				require.Equal(t, expectedAppCfg, appCfg)
+
+				// Load config using viper unmarshal.
+				appCfg = AppConfig{DB: NewDefaultConfig(supportedDialects)}
+				expectedAppCfg = AppConfig{DB: tt.expectedCfg()}
+				vpr := viper.New()
+				vpr.SetConfigType(string(dataType))
+				require.NoError(t, vpr.ReadConfig(bytes.NewBuffer([]byte(cfgData))))
+				require.NoError(t, vpr.Unmarshal(&appCfg, func(c *mapstructure.DecoderConfig) {
+					c.DecodeHook = mapstructure.TextUnmarshallerHookFunc()
+				}))
+				require.Equal(t, expectedAppCfg, appCfg)
+
+				// Load config using yaml/json unmarshal.
+				appCfg = AppConfig{DB: NewDefaultConfig(supportedDialects)}
+				expectedAppCfg = AppConfig{DB: tt.expectedCfg()}
+				switch dataType {
+				case config.DataTypeYAML:
+					require.NoError(t, yaml.Unmarshal([]byte(cfgData), &appCfg))
+					require.Equal(t, expectedAppCfg, appCfg)
+				case config.DataTypeJSON:
+					require.NoError(t, json.Unmarshal([]byte(cfgData), &appCfg))
+					require.Equal(t, expectedAppCfg, appCfg)
+				}
+			}
+		})
+	}
+}
+
+func TestConfigWithKeyPrefix(t *testing.T) {
+	t.Run("custom key prefix", func(t *testing.T) {
+		cfgData := `
+customDb:
+  dialect: mysql
+  mysql:
+    host: mysql-host
+    port: 3307
+`
+		cfg := NewConfig([]Dialect{DialectMySQL}, WithKeyPrefix("customDb"))
+		err := config.NewDefaultLoader("").LoadFromReader(bytes.NewBuffer([]byte(cfgData)), config.DataTypeYAML, cfg)
 		require.NoError(t, err)
-		require.Equal(t, DialectMSSQL, cfg.Dialect)
-		wantMSSQLCfg := MSSQLConfig{
-			Host:             "mssql-host",
-			Port:             1433,
-			Database:         "mssql_db",
-			User:             "mssql-user",
-			Password:         "mssql-password",
-			TxIsolationLevel: sql.LevelRepeatableRead,
-		}
-		require.Equal(t, wantMSSQLCfg, cfg.MSSQL)
+		require.Equal(t, DialectMySQL, cfg.Dialect)
+		require.Equal(t, "mysql-host", cfg.MySQL.Host)
+		require.Equal(t, 3307, cfg.MySQL.Port)
 	})
 
-	t.Run("read multiple connection parameters from one source", func(t *testing.T) {
-		cfgData := bytes.NewBufferString(`
-subsystemA:
-  db:
-    dialect: mssql
-    mssql:
-      host: mssql-host
-      port: 1433
-      database: subsystem_a
-      user: mssql-user-a
-      password: mssql-password-a
-      txLevel: Repeatable Read
-subsystemB:
-  db:
-    dialect: mssql
-    mssql:
-      host: mssql-host
-      port: 1433
-      database: subsystem_b
-      user: mssql-user-b
-      password: mssql-password-b
-      txLevel: Read Committed
-`)
-		cfgA := NewConfigWithKeyPrefix("subsystemA", allDialects)
-		cfgB := NewConfigWithKeyPrefix("subsystemB", allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfgA, cfgB)
+	t.Run("default key prefix, empty struct initialization", func(t *testing.T) {
+		cfgData := `
+db:
+  dialect: mysql
+  mysql:
+    host: mysql-host
+    port: 3307
+`
+		cfg := &Config{}
+		err := config.NewDefaultLoader("").LoadFromReader(bytes.NewBuffer([]byte(cfgData)), config.DataTypeYAML, cfg)
 		require.NoError(t, err)
-
-		require.Equal(t, DialectMSSQL, cfgA.Dialect)
-		wantSubSystemACfg := MSSQLConfig{
-			Host:             "mssql-host",
-			Port:             1433,
-			Database:         "subsystem_a",
-			User:             "mssql-user-a",
-			Password:         "mssql-password-a",
-			TxIsolationLevel: sql.LevelRepeatableRead,
-		}
-		require.Equal(t, wantSubSystemACfg, cfgA.MSSQL)
-
-		require.Equal(t, DialectMSSQL, cfgB.Dialect)
-		wantSubSystemBCfg := MSSQLConfig{
-			Host:             "mssql-host",
-			Port:             1433,
-			Database:         "subsystem_b",
-			User:             "mssql-user-b",
-			Password:         "mssql-password-b",
-			TxIsolationLevel: sql.LevelReadCommitted,
-		}
-		require.Equal(t, wantSubSystemBCfg, cfgB.MSSQL)
+		require.Equal(t, DialectMySQL, cfg.Dialect)
+		require.Equal(t, "mysql-host", cfg.MySQL.Host)
+		require.Equal(t, 3307, cfg.MySQL.Port)
 	})
+}
+
+func TestConfigValidationErrors(t *testing.T) {
+	supportedDialects := []Dialect{DialectSQLite, DialectMySQL, DialectPostgres, DialectPgx, DialectMSSQL}
+
+	tests := []struct {
+		name           string
+		yamlData       string
+		expectedErrMsg string
+	}{
+		{
+			name: "unknown dialect",
+			yamlData: `
+db:
+  dialect: fake-dialect
+`,
+			expectedErrMsg: `db.dialect: unknown value "fake-dialect", should be one of [sqlite3 mysql postgres pgx mssql]`,
+		},
+		{
+			name: "invalid max open connections",
+			yamlData: `
+db:
+  dialect: mysql
+  maxOpenConns: -1
+`,
+			expectedErrMsg: `db.maxOpenConns: must be positive`,
+		},
+		{
+			name: "invalid max idel connections",
+			yamlData: `
+db:
+  dialect: mysql
+  maxIdleConns: -1
+`,
+			expectedErrMsg: `db.maxIdleConns: must be positive`,
+		},
+		{
+			name: "max idle connections greater than max open connections",
+			yamlData: `
+db:
+  dialect: mysql
+  maxOpenConns: 5
+  maxIdleConns: 10
+`,
+			expectedErrMsg: `db.maxIdleConns: must be less than maxOpenConns`,
+		},
+		{
+			name: "invalid connection max lifetime",
+			yamlData: `
+db:
+  dialect: mysql
+  connMaxLifeTime: "invalid-duration"
+`,
+			expectedErrMsg: `db.connMaxLifeTime: time: invalid duration "invalid-duration"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewConfig(supportedDialects)
+			err := config.NewDefaultLoader("").LoadFromReader(bytes.NewBuffer([]byte(tt.yamlData)), config.DataTypeYAML, cfg)
+			require.EqualError(t, err, tt.expectedErrMsg)
+		})
+	}
+}
+
+func mustYAMLToJSON(yamlData []byte) []byte {
+	var yamlMap map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &yamlMap); err != nil {
+		panic(err)
+	}
+	jsonData, err := json.MarshalIndent(yamlMap, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return jsonData
 }

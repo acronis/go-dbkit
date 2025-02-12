@@ -29,7 +29,7 @@ func TestMakeMySQLDSN(t *testing.T) {
 func TestMakePgSQLDSN(t *testing.T) {
 	cfg := &PostgresConfig{
 		Host:             "myhost",
-		TxIsolationLevel: sql.LevelReadCommitted,
+		TxIsolationLevel: IsolationLevel(sql.LevelReadCommitted),
 		Port:             5432,
 		User:             "myadmin",
 		Password:         "mypassword",
@@ -43,7 +43,7 @@ func TestMakePgSQLDSN(t *testing.T) {
 func TestMakeMSSQLDSN(t *testing.T) {
 	cfg := &MSSQLConfig{
 		Host:             "myhost",
-		TxIsolationLevel: sql.LevelReadCommitted,
+		TxIsolationLevel: IsolationLevel(sql.LevelReadCommitted),
 		Port:             1433,
 		User:             "myadmin",
 		Password:         "mypassword",

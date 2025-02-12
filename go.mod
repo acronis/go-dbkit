@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/acronis/go-appkit v1.5.0
+	github.com/acronis/go-appkit v1.11.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/denisenkom/go-mssqldb v0.12.3
 	github.com/doug-martin/goqu/v9 v9.19.0

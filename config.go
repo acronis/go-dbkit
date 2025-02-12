@@ -8,98 +8,59 @@ package dbkit
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/acronis/go-appkit/config"
+	"gopkg.in/yaml.v3"
 )
+
+const cfgDefaultKeyPrefix = "db"
 
 const (
-	cfgKeyDialect         = "db.dialect"
-	cfgKeyMaxIdleConns    = "db.maxIdleConns"
-	cfgKeyMaxOpenConns    = "db.maxOpenConns"
-	cfgKeyConnMaxLifetime = "db.connMaxLifeTime"
+	cfgKeyDialect         = "dialect"
+	cfgKeyMaxIdleConns    = "maxIdleConns"
+	cfgKeyMaxOpenConns    = "maxOpenConns"
+	cfgKeyConnMaxLifetime = "connMaxLifeTime"
 
-	cfgKeyMySQLHost     = "db.mysql.host"
-	cfgKeyMySQLPort     = "db.mysql.port"
-	cfgKeyMySQLDatabase = "db.mysql.database"
-	cfgKeyMySQLUser     = "db.mysql.user"
-	cfgKeyMySQLPassword = "db.mysql.password" //nolint: gosec
-	cfgKeyMySQLTxLevel  = "db.mysql.txLevel"
+	cfgKeyMySQLHost     = "mysql.host"
+	cfgKeyMySQLPort     = "mysql.port"
+	cfgKeyMySQLDatabase = "mysql.database"
+	cfgKeyMySQLUser     = "mysql.user"
+	cfgKeyMySQLPassword = "mysql.password" //nolint: gosec
+	cfgKeyMySQLTxLevel  = "mysql.txLevel"
 
-	cfgKeySQLitePath = "db.sqlite3.path"
+	cfgKeySQLitePath = "sqlite3.path"
 
-	cfgKeyPostgresHost             = "db.postgres.host"
-	cfgKeyPostgresPort             = "db.postgres.port"
-	cfgKeyPostgresDatabase         = "db.postgres.database"
-	cfgKeyPostgresUser             = "db.postgres.user"
-	cfgKeyPostgresPassword         = "db.postgres.password" //nolint: gosec
-	cfgKeyPostgresTxLevel          = "db.postgres.txLevel"
-	cfgKeyPostgresSSLMode          = "db.postgres.sslMode"
-	cfgKeyPostgresSearchPath       = "db.postgres.searchPath"
-	cfgKeyPostgresAdditionalParams = "db.postgres.additionalParameters"
-	cfgKeyMSSQLHost                = "db.mssql.host"
-	cfgKeyMSSQLPort                = "db.mssql.port"
-	cfgKeyMSSQLDatabase            = "db.mssql.database"
-	cfgKeyMSSQLUser                = "db.mssql.user"
-	cfgKeyMSSQLPassword            = "db.mssql.password" //nolint: gosec
-	cfgKeyMSSQLTxLevel             = "db.mssql.txLevel"
+	cfgKeyPostgresHost             = "postgres.host"
+	cfgKeyPostgresPort             = "postgres.port"
+	cfgKeyPostgresDatabase         = "postgres.database"
+	cfgKeyPostgresUser             = "postgres.user"
+	cfgKeyPostgresPassword         = "postgres.password" //nolint: gosec
+	cfgKeyPostgresTxLevel          = "postgres.txLevel"
+	cfgKeyPostgresSSLMode          = "postgres.sslMode"
+	cfgKeyPostgresSearchPath       = "postgres.searchPath"
+	cfgKeyPostgresAdditionalParams = "postgres.additionalParameters"
+	cfgKeyMSSQLHost                = "mssql.host"
+	cfgKeyMSSQLPort                = "mssql.port"
+	cfgKeyMSSQLDatabase            = "mssql.database"
+	cfgKeyMSSQLUser                = "mssql.user"
+	cfgKeyMSSQLPassword            = "mssql.password" //nolint: gosec
+	cfgKeyMSSQLTxLevel             = "mssql.txLevel"
 )
-
-// MySQLConfig represents a set of configuration parameters for working with MySQL.
-type MySQLConfig struct {
-	Host             string
-	Port             int
-	User             string
-	Password         string
-	Database         string
-	TxIsolationLevel sql.IsolationLevel
-}
-
-// MSSQLConfig represents a set of configuration parameters for working with MSSQL.
-type MSSQLConfig struct {
-	Host             string
-	Port             int
-	User             string
-	Password         string
-	Database         string
-	TxIsolationLevel sql.IsolationLevel
-}
-
-// SQLiteConfig represents a set of configuration parameters for working with SQLite.
-type SQLiteConfig struct {
-	Path string
-}
-
-// Parameter represent DB connection parameter. Value will be url-encoded before adding into the connection string.
-type Parameter struct {
-	Name  string
-	Value string
-}
-
-// PostgresConfig represents a set of configuration parameters for working with Postgres.
-type PostgresConfig struct {
-	Host                 string
-	Port                 int
-	User                 string
-	Password             string
-	Database             string
-	TxIsolationLevel     sql.IsolationLevel
-	SSLMode              PostgresSSLMode
-	SearchPath           string
-	AdditionalParameters []Parameter
-}
 
 // Config represents a set of configuration parameters working with SQL databases.
 type Config struct {
-	Dialect         Dialect
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-	MySQL           MySQLConfig
-	MSSQL           MSSQLConfig
-	SQLite          SQLiteConfig
-	Postgres        PostgresConfig
+	Dialect         Dialect             `mapstructure:"dialect" yaml:"dialect" json:"dialect"`
+	MaxOpenConns    int                 `mapstructure:"maxOpenConns" yaml:"maxOpenConns" json:"maxOpenConns"`
+	MaxIdleConns    int                 `mapstructure:"maxIdleConns" yaml:"maxIdleConns" json:"maxIdleConns"`
+	ConnMaxLifetime config.TimeDuration `mapstructure:"connMaxLifeTime" yaml:"connMaxLifeTime" json:"connMaxLifeTime"`
+	MySQL           MySQLConfig         `mapstructure:"mysql" yaml:"mysql" json:"mysql"`
+	MSSQL           MSSQLConfig         `mapstructure:"mssql" yaml:"mssql" json:"mssql"`
+	SQLite          SQLiteConfig        `mapstructure:"sqlite3" yaml:"sqlite3" json:"sqlite3"`
+	Postgres        PostgresConfig      `mapstructure:"postgres" yaml:"postgres" json:"postgres"`
 
 	keyPrefix         string
 	supportedDialects []Dialect
@@ -108,30 +69,76 @@ type Config struct {
 var _ config.Config = (*Config)(nil)
 var _ config.KeyPrefixProvider = (*Config)(nil)
 
-// NewConfig creates a new instance of the Config.
-func NewConfig(supportedDialects []Dialect) *Config {
-	return NewConfigWithKeyPrefix("", supportedDialects)
+// ConfigOption is a type for functional options for the Config.
+type ConfigOption func(*configOptions)
+
+type configOptions struct {
+	keyPrefix string
 }
 
-// NewConfigWithKeyPrefix creates a new instance of the Config.
-// Allows to specify key prefix which will be used for parsing configuration parameters.
-func NewConfigWithKeyPrefix(keyPrefix string, supportedDialects []Dialect) *Config {
-	for _, dialect := range supportedDialects {
-		switch dialect {
-		case DialectMSSQL, DialectSQLite, DialectPostgres, DialectPgx, DialectMySQL:
-		default:
-			panic(fmt.Sprintf("unknown dialect %q", string(dialect)))
-		}
+// WithKeyPrefix returns a ConfigOption that sets a key prefix for parsing configuration parameters.
+// This prefix will be used by config.Loader.
+func WithKeyPrefix(keyPrefix string) ConfigOption {
+	return func(o *configOptions) {
+		o.keyPrefix = keyPrefix
 	}
-	return &Config{keyPrefix: keyPrefix, supportedDialects: supportedDialects}
+}
+
+// NewConfig creates a new instance of the Config.
+func NewConfig(supportedDialects []Dialect, options ...ConfigOption) *Config {
+	var opts = configOptions{keyPrefix: cfgDefaultKeyPrefix} // cfgDefaultKeyPrefix is used here for backward compatibility
+	for _, opt := range options {
+		opt(&opts)
+	}
+	return &Config{supportedDialects: supportedDialects, keyPrefix: opts.keyPrefix}
+}
+
+// NewConfigWithKeyPrefix creates a new instance of the Config with a key prefix.
+// This prefix will be used by config.Loader.
+// Deprecated: use NewConfig with WithKeyPrefix instead.
+func NewConfigWithKeyPrefix(keyPrefix string, supportedDialects []Dialect) *Config {
+	if keyPrefix != "" {
+		keyPrefix += "."
+	}
+	keyPrefix += cfgDefaultKeyPrefix // cfgDefaultKeyPrefix is added here for backward compatibility
+	return &Config{supportedDialects: supportedDialects, keyPrefix: keyPrefix}
+}
+
+// NewDefaultConfig creates a new instance of the Config with default values.
+func NewDefaultConfig(supportedDialects []Dialect, options ...ConfigOption) *Config {
+	opts := configOptions{keyPrefix: cfgDefaultKeyPrefix}
+	for _, opt := range options {
+		opt(&opts)
+	}
+	return &Config{
+		keyPrefix:         opts.keyPrefix,
+		supportedDialects: supportedDialects,
+		MaxOpenConns:      DefaultMaxOpenConns,
+		MaxIdleConns:      DefaultMaxIdleConns,
+		ConnMaxLifetime:   config.TimeDuration(DefaultConnMaxLifetime),
+		MySQL: MySQLConfig{
+			TxIsolationLevel: IsolationLevel(MySQLDefaultTxLevel),
+		},
+		Postgres: PostgresConfig{
+			TxIsolationLevel: IsolationLevel(PostgresDefaultTxLevel),
+			SSLMode:          PostgresDefaultSSLMode,
+		},
+		MSSQL: MSSQLConfig{
+			TxIsolationLevel: IsolationLevel(MSSQLDefaultTxLevel),
+		},
+	}
 }
 
 // KeyPrefix returns a key prefix with which all configuration parameters should be presented.
+// Implements config.KeyPrefixProvider interface.
 func (c *Config) KeyPrefix() string {
+	if c.keyPrefix == "" {
+		return cfgDefaultKeyPrefix
+	}
 	return c.keyPrefix
 }
 
-// SupportedDialects returns list of supported dialects.
+// SupportedDialects returns the list of supported dialects.
 func (c *Config) SupportedDialects() []Dialect {
 	if len(c.supportedDialects) != 0 {
 		return c.supportedDialects
@@ -148,6 +155,44 @@ func (c *Config) SetProviderDefaults(dp config.DataProvider) {
 	dp.SetDefault(cfgKeyPostgresTxLevel, PostgresDefaultTxLevel.String())
 	dp.SetDefault(cfgKeyPostgresSSLMode, string(PostgresDefaultSSLMode))
 	dp.SetDefault(cfgKeyMSSQLTxLevel, MSSQLDefaultTxLevel.String())
+}
+
+// MySQLConfig represents a set of configuration parameters for working with MySQL.
+type MySQLConfig struct {
+	Host             string         `mapstructure:"host" yaml:"host" json:"host"`
+	Port             int            `mapstructure:"port" yaml:"port" json:"port"`
+	User             string         `mapstructure:"user" yaml:"user" json:"user"`
+	Password         string         `mapstructure:"password" yaml:"password" json:"password"`
+	Database         string         `mapstructure:"database" yaml:"database" json:"database"`
+	TxIsolationLevel IsolationLevel `mapstructure:"txLevel" yaml:"txLevel" json:"txLevel"`
+}
+
+// MSSQLConfig represents a set of configuration parameters for working with MSSQL.
+type MSSQLConfig struct {
+	Host             string         `mapstructure:"host" yaml:"host" json:"host"`
+	Port             int            `mapstructure:"port" yaml:"port" json:"port"`
+	User             string         `mapstructure:"user" yaml:"user" json:"user"`
+	Password         string         `mapstructure:"password" yaml:"password" json:"password"`
+	Database         string         `mapstructure:"database" yaml:"database" json:"database"`
+	TxIsolationLevel IsolationLevel `mapstructure:"txLevel" yaml:"txLevel" json:"txLevel"`
+}
+
+// SQLiteConfig represents a set of configuration parameters for working with SQLite.
+type SQLiteConfig struct {
+	Path string `mapstructure:"path" yaml:"path" json:"path"`
+}
+
+// PostgresConfig represents a set of configuration parameters for working with Postgres.
+type PostgresConfig struct {
+	Host                 string            `mapstructure:"host" yaml:"host" json:"host"`
+	Port                 int               `mapstructure:"port" yaml:"port" json:"port"`
+	User                 string            `mapstructure:"user" yaml:"user" json:"user"`
+	Password             string            `mapstructure:"password" yaml:"password" json:"password"`
+	Database             string            `mapstructure:"database" yaml:"database" json:"database"`
+	TxIsolationLevel     IsolationLevel    `mapstructure:"txLevel" yaml:"txLevel" json:"txLevel"`
+	SSLMode              PostgresSSLMode   `mapstructure:"sslMode" yaml:"sslMode" json:"sslMode"`
+	SearchPath           string            `mapstructure:"searchPath" yaml:"searchPath" json:"searchPath"`
+	AdditionalParameters map[string]string `mapstructure:"additionalParameters" yaml:"additionalParameters" json:"additionalParameters"`
 }
 
 // Set sets configuration values from config.DataProvider.
@@ -179,9 +224,11 @@ func (c *Config) Set(dp config.DataProvider) error {
 	c.MaxOpenConns = maxOpenConns
 	c.MaxIdleConns = maxIdleConns
 
-	if c.ConnMaxLifetime, err = dp.GetDuration(cfgKeyConnMaxLifetime); err != nil {
+	var connMaxLifeTime time.Duration
+	if connMaxLifeTime, err = dp.GetDuration(cfgKeyConnMaxLifetime); err != nil {
 		return err
 	}
+	c.ConnMaxLifetime = config.TimeDuration(connMaxLifeTime)
 
 	return nil
 }
@@ -190,9 +237,11 @@ func (c *Config) Set(dp config.DataProvider) error {
 func (c *Config) TxIsolationLevel() sql.IsolationLevel {
 	switch c.Dialect {
 	case DialectMySQL:
-		return c.MySQL.TxIsolationLevel
+		return sql.IsolationLevel(c.MySQL.TxIsolationLevel)
 	case DialectPostgres, DialectPgx:
-		return c.Postgres.TxIsolationLevel
+		return sql.IsolationLevel(c.Postgres.TxIsolationLevel)
+	case DialectMSSQL:
+		return sql.IsolationLevel(c.MSSQL.TxIsolationLevel)
 	}
 	return sql.LevelDefault
 }
@@ -318,23 +367,21 @@ func (c *Config) setPostgresConfig(dp config.DataProvider, dialect Dialect) erro
 		return err
 	}
 
-	var dbParams map[string]string
-	if dbParams, err = dp.GetStringMapString(cfgKeyPostgresAdditionalParams); err != nil {
+	var additionalParams map[string]string
+	if additionalParams, err = dp.GetStringMapString(cfgKeyPostgresAdditionalParams); err != nil {
 		return err
 	}
-	if len(dbParams) != 0 {
-		c.Postgres.AdditionalParameters = make([]Parameter, 0, len(dbParams))
-		for name, val := range dbParams {
-			c.Postgres.AdditionalParameters = append(c.Postgres.AdditionalParameters, Parameter{name, val})
-		}
+	if len(additionalParams) != 0 {
+		c.Postgres.AdditionalParameters = additionalParams
 	}
-
-	// Force to add Patroni readonly replica aware parameter (only for pgx driver).
+	// Force to add Patroni readonly replica-aware parameter (only for pgx driver).
 	// Don't override already added parameter.
 	if dialect == DialectPgx {
-		if _, ok := dbParams[PgTargetSessionAttrs]; !ok {
-			c.Postgres.AdditionalParameters = append(c.Postgres.AdditionalParameters, Parameter{
-				PgTargetSessionAttrs, PgReadWriteParam})
+		if _, ok := c.Postgres.AdditionalParameters[PgTargetSessionAttrs]; !ok {
+			if c.Postgres.AdditionalParameters == nil {
+				c.Postgres.AdditionalParameters = make(map[string]string)
+			}
+			c.Postgres.AdditionalParameters[PgTargetSessionAttrs] = PgReadWriteParam
 		}
 	}
 
@@ -363,26 +410,92 @@ func (c *Config) setSQLiteConfig(dp config.DataProvider) error {
 	return nil
 }
 
-var availableTxIsolationLevels = []sql.IsolationLevel{
-	sql.LevelReadUncommitted,
-	sql.LevelReadCommitted,
-	sql.LevelRepeatableRead,
-	sql.LevelSerializable,
+func getIsolationLevel(dp config.DataProvider, key string) (IsolationLevel, error) {
+	s, err := dp.GetString(key)
+	if err != nil {
+		return IsolationLevel(sql.LevelDefault), err
+	}
+	return getTxIsolationLevelFromString(s)
 }
 
-func getIsolationLevel(dp config.DataProvider, key string) (sql.IsolationLevel, error) {
-	availableLevelsStr := make([]string, 0, len(availableTxIsolationLevels))
-	for _, lvl := range availableTxIsolationLevels {
-		availableLevelsStr = append(availableLevelsStr, lvl.String())
-	}
-	gotLevelStr, err := dp.GetStringFromSet(key, availableLevelsStr, false)
+type IsolationLevel sql.IsolationLevel
+
+// UnmarshalJSON allows decoding string representation of isolation level from JSON.
+// Implements json.Unmarshaler interface.
+func (il *IsolationLevel) UnmarshalJSON(data []byte) error {
+	level, err := getTxIsolationLevelFromString(strings.Trim(string(data), `"`))
 	if err != nil {
-		return sql.LevelDefault, err
+		return err
 	}
-	for i, lvlStr := range availableLevelsStr {
-		if gotLevelStr == lvlStr {
-			return availableTxIsolationLevels[i], nil
-		}
+	*il = level
+	return nil
+}
+
+// UnmarshalYAML allows decoding from YAML.
+// Implements yaml.Unmarshaler interface.
+func (il *IsolationLevel) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return fmt.Errorf("invalid isolation level: %w", err)
 	}
-	return sql.LevelDefault, nil
+	level, err := getTxIsolationLevelFromString(s)
+	if err != nil {
+		return err
+	}
+	*il = level
+	return nil
+}
+
+// UnmarshalText allows decoding from text.
+// Implements encoding.TextUnmarshaler interface, which is used by mapstructure.TextUnmarshallerHookFunc.
+func (il *IsolationLevel) UnmarshalText(text []byte) error {
+	return il.UnmarshalJSON(text)
+}
+
+// String returns the human-readable string representation.
+// Implements fmt.Stringer interface.
+func (il IsolationLevel) String() string {
+	return sql.IsolationLevel(il).String()
+}
+
+// MarshalJSON encodes as a human-readable string in JSON.
+// Implements json.Marshaler interface.
+func (il IsolationLevel) MarshalJSON() ([]byte, error) {
+	return json.Marshal(il.String())
+}
+
+// MarshalYAML encodes as a human-readable string in YAML.
+// Implements yaml.Marshaler interface.
+func (il IsolationLevel) MarshalYAML() (interface{}, error) {
+	return il.String(), nil
+}
+
+// MarshalText encodes as a human-readable string in text.
+// Implements encoding.TextMarshaler interface.
+func (il *IsolationLevel) MarshalText() ([]byte, error) {
+	return []byte(il.String()), nil
+}
+
+var availableTxIsolationLevelsMap = prepareAvailableTxIsolationLevelsStr()
+
+func prepareAvailableTxIsolationLevelsStr() map[string]IsolationLevel {
+	availableLevels := []sql.IsolationLevel{
+		sql.LevelReadUncommitted,
+		sql.LevelReadCommitted,
+		sql.LevelRepeatableRead,
+		sql.LevelSerializable,
+	}
+	m := make(map[string]IsolationLevel, len(availableLevels))
+	for _, level := range availableLevels {
+		m[level.String()] = IsolationLevel(level)
+	}
+	return m
+}
+
+func getTxIsolationLevelFromString(s string) (IsolationLevel, error) {
+	level, ok := availableTxIsolationLevelsMap[s]
+	if !ok {
+		return IsolationLevel(sql.LevelDefault), fmt.Errorf("invalid isolation level: %s", s)
+	}
+	return level, nil
 }

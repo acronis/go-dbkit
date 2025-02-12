@@ -60,12 +60,9 @@ func MakePostgresDSN(cfg *PostgresConfig) string {
 	if cfg.SearchPath != "" {
 		connURI.RawQuery += fmt.Sprintf("&search_path=%s", url.QueryEscape(cfg.SearchPath))
 	}
-	if len(cfg.AdditionalParameters) != 0 {
-		for _, p := range cfg.AdditionalParameters {
-			connURI.RawQuery += fmt.Sprintf("&%s=%s", p.Name, url.QueryEscape(p.Value))
-		}
+	for k, v := range cfg.AdditionalParameters {
+		connURI.RawQuery += fmt.Sprintf("&%s=%s", k, url.QueryEscape(v))
 	}
-
 	return connURI.String()
 }
 

@@ -7,7 +7,6 @@ Released under MIT license.
 package sqlite
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
@@ -15,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/acronis/go-appkit/config"
 	"github.com/acronis/go-appkit/retry"
 	sqlite3 "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
@@ -169,34 +167,4 @@ func execInTx(ctx context.Context, dbConn *sql.DB, stmt string) error {
 		return err
 	}
 	return tr.Commit()
-}
-
-func TestConfig(t *testing.T) {
-	t.Run("read sqlite parameters", func(t *testing.T) {
-		allDialects := []dbkit.Dialect{
-			dbkit.DialectSQLite,
-			dbkit.DialectMySQL,
-			dbkit.DialectPostgres,
-			dbkit.DialectMSSQL,
-		}
-
-		cfgData := bytes.NewBufferString(`
-db:
-  maxOpenConns: 20
-  maxIdleConns: 10
-  connMaxLifeTime: 1m
-  dialect: sqlite3
-  sqlite3:
-    path: ":memory:"
-`)
-		cfg := dbkit.NewConfig(allDialects)
-		err := config.NewDefaultLoader("").LoadFromReader(cfgData, config.DataTypeYAML, cfg)
-		require.NoError(t, err)
-		require.Equal(t, 20, cfg.MaxOpenConns)
-		require.Equal(t, 10, cfg.MaxIdleConns)
-		require.Equal(t, time.Minute, cfg.ConnMaxLifetime)
-		require.Equal(t, dbkit.DialectSQLite, cfg.Dialect)
-		require.Equal(t, ":memory:", cfg.SQLite.Path)
-		require.Equal(t, sql.LevelDefault, cfg.TxIsolationLevel())
-	})
 }

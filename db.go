@@ -10,13 +10,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // InitOpenedDB initializes early opened *sql.DB instance.
 func InitOpenedDB(db *sql.DB, cfg *Config, ping bool) error {
 	db.SetMaxOpenConns(cfg.MaxOpenConns)
 	db.SetMaxIdleConns(cfg.MaxIdleConns)
-	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetConnMaxLifetime(time.Duration(cfg.ConnMaxLifetime))
 
 	if ping {
 		if err := db.Ping(); err != nil {
