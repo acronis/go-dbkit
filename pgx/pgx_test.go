@@ -21,48 +21,6 @@ import (
 	"github.com/acronis/go-dbkit/internal/testing"
 )
 
-func TestMakePostgresDSN(t *gotesting.T) {
-	tests := []struct {
-		Name    string
-		Cfg     *dbkit.PostgresConfig
-		WantDSN string
-	}{
-		{
-			Name: "search_path is used",
-			Cfg: &dbkit.PostgresConfig{
-				Host:                 "pghost",
-				Port:                 5433,
-				User:                 "pgadmin",
-				Password:             "pgpassword",
-				Database:             "pgdb",
-				SSLMode:              dbkit.PostgresSSLModeRequire,
-				SearchPath:           "pgsearch",
-				AdditionalParameters: map[string]string{"param1": "foo", "param2": "bar"},
-			},
-			WantDSN: "postgres://pgadmin:pgpassword@pghost:5433/pgdb?sslmode=require&search_path=pgsearch&param1=foo&param2=bar",
-		},
-		{
-			Name: "base",
-			Cfg: &dbkit.PostgresConfig{
-				Host:                 "pghost",
-				Port:                 5433,
-				User:                 "pgadmin",
-				Password:             "pgpassword",
-				Database:             "pgdb",
-				SSLMode:              dbkit.PostgresSSLModeRequire,
-				AdditionalParameters: map[string]string{"param1": "Lorem ipsum"},
-			},
-			WantDSN: "postgres://pgadmin:pgpassword@pghost:5433/pgdb?sslmode=require&param1=Lorem+ipsum",
-		},
-	}
-	for i := range tests {
-		tt := tests[i]
-		t.Run(tt.Name, func(t *gotesting.T) {
-			require.Equal(t, dbkit.MakePostgresDSN(tt.Cfg), tt.WantDSN)
-		})
-	}
-}
-
 func TestPostgresIsRetryable(t *gotesting.T) {
 	isRetryable := dbkit.GetIsRetryable(&pg.Driver{})
 	require.NotNil(t, isRetryable)

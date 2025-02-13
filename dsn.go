@@ -8,6 +8,8 @@ package dbkit
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"net/url"
 
@@ -60,8 +62,13 @@ func MakePostgresDSN(cfg *PostgresConfig) string {
 	if cfg.SearchPath != "" {
 		connURI.RawQuery += fmt.Sprintf("&search_path=%s", url.QueryEscape(cfg.SearchPath))
 	}
-	for k, v := range cfg.AdditionalParameters {
-		connURI.RawQuery += fmt.Sprintf("&%s=%s", k, url.QueryEscape(v))
+	if len(cfg.AdditionalParameters) != 0 {
+		queryParts := make([]string, 0, len(cfg.AdditionalParameters))
+		for k, v := range cfg.AdditionalParameters {
+			queryParts = append(queryParts, fmt.Sprintf("%s=%s", k, url.QueryEscape(v)))
+		}
+		sort.Strings(queryParts) // Sort to make DSN deterministic.
+		connURI.RawQuery += "&" + strings.Join(queryParts, "&")
 	}
 	return connURI.String()
 }
