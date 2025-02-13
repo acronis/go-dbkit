@@ -11,35 +11,47 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
-	"github.com/acronis/go-appkit/log"
 	"github.com/google/uuid"
 
 	"github.com/acronis/go-dbkit"
 	"github.com/acronis/go-dbkit/migrate"
 )
 
-const defaultTableName = "distributed_locks"
+// DefaultTableName is a default name for the table that stores distributed locks.
+const DefaultTableName = "distributed_locks"
 
 // DBManager provides management functionality for distributed locks based on the SQL database.
 type DBManager struct {
 	queries dbQueries
 }
 
-// DBManagerOpts represents an options for DBManager.
-type DBManagerOpts struct {
-	TableName string
+// DBManagerOption is an option for NewDBManager.
+type DBManagerOption func(*dbManagerOptions)
+
+type dbManagerOptions struct {
+	tableName string
 }
 
-// NewDBManager creates new distributed lock manager that uses SQL database as a backend.
-func NewDBManager(dialect dbkit.Dialect) (*DBManager, error) {
-	return NewDBManagerWithOpts(dialect, DBManagerOpts{TableName: defaultTableName})
+// WithTableName sets a custom table name for the table that stores distributed locks.
+func WithTableName(tableName string) DBManagerOption {
+	return func(o *dbManagerOptions) {
+		o.tableName = tableName
+	}
 }
 
-// NewDBManagerWithOpts is a more configurable version of the NewDBManager.
-func NewDBManagerWithOpts(dialect dbkit.Dialect, opts DBManagerOpts) (*DBManager, error) {
-	q, err := newDBQueries(dialect, opts.TableName)
+// NewDBManager creates a new distributed lock manager that uses SQL database as a backend.
+func NewDBManager(dialect dbkit.Dialect, options ...DBManagerOption) (*DBManager, error) {
+	var opts dbManagerOptions
+	for _, opt := range options {
+		opt(&opts)
+	}
+	if opts.tableName == "" {
+		opts.tableName = DefaultTableName
+	}
+	q, err := newDBQueries(dialect, opts.tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -49,18 +61,23 @@ func NewDBManagerWithOpts(dialect dbkit.Dialect, opts DBManagerOpts) (*DBManager
 // Migrations returns set of migrations that must be applied before creating new locks.
 func (m *DBManager) Migrations() []migrate.Migration {
 	return []migrate.Migration{
-		migrate.NewCustomMigration(
-			createTableMigrationID,
-			[]string{m.queries.createTable},
-			[]string{m.queries.dropTable},
-			nil,
-			nil,
-		),
+		migrate.NewCustomMigration(createTableMigrationID,
+			[]string{m.CreateTableSQL()}, []string{m.DropTableSQL()}, nil, nil),
 	}
 }
 
+// CreateTableSQL returns SQL query for creating a table that stores distributed locks.
+func (m *DBManager) CreateTableSQL() string {
+	return m.queries.createTable
+}
+
+// DropTableSQL returns SQL query for dropping a table that stores distributed locks.
+func (m *DBManager) DropTableSQL() string {
+	return m.queries.dropTable
+}
+
 // NewLock creates new initialized (but not acquired) distributed lock.
-func (m *DBManager) NewLock(ctx context.Context, executor sqlExecutor, key string) (DBLock, error) {
+func (m *DBManager) NewLock(ctx context.Context, executor SQLExecutor, key string) (DBLock, error) {
 	if key == "" {
 		return DBLock{}, fmt.Errorf("lock key cannot be empty")
 	}
@@ -68,7 +85,7 @@ func (m *DBManager) NewLock(ctx context.Context, executor sqlExecutor, key strin
 		return DBLock{}, fmt.Errorf("lock key cannot be longer than 40 symbols")
 	}
 	if _, err := executor.ExecContext(ctx, m.queries.initLock, key); err != nil {
-		return DBLock{}, err
+		return DBLock{}, fmt.Errorf("init lock with key %s: %w", key, err)
 	}
 	return DBLock{Key: key, manager: m}, nil
 }
@@ -82,20 +99,21 @@ type DBLock struct {
 }
 
 // Acquire acquires lock for the key in the database.
-func (l *DBLock) Acquire(ctx context.Context, executor sqlExecutor, lockTTL time.Duration) error {
+func (l *DBLock) Acquire(ctx context.Context, executor SQLExecutor, lockTTL time.Duration) error {
 	return l.AcquireWithStaticToken(ctx, executor, uuid.NewString(), lockTTL)
 }
 
 // AcquireWithStaticToken acquires lock for the key in the database with a static token.
+//
 // There two use cases for this method:
-//  1. When you need repeatably acquire the same lock preventing other processes from acquiring it at the same time.
-//     As an example you can block old version of workers before the upgrade and starting new version of them.
+//  1. When you need to repeatably acquire the same lock preventing other processes from acquiring it at the same time.
+//     As an example, you can block an old version of workers before the upgrade and start a new version of them.
 //  2. When you need several processes to acquire the same lock.
 //
 // Please use Acquire instead of this method unless you have a good reason to use it.
-func (l *DBLock) AcquireWithStaticToken(ctx context.Context, executor sqlExecutor, token string, lockTTL time.Duration) error {
+func (l *DBLock) AcquireWithStaticToken(ctx context.Context, executor SQLExecutor, token string, lockTTL time.Duration) error {
 	interval := l.manager.queries.intervalMaker(lockTTL)
-	err := execQueryAndCheck(ctx, executor, l.manager.queries.acquireLock,
+	err := execQueryAndCheckAffectedRow(ctx, executor, l.manager.queries.acquireLock,
 		[]interface{}{interval, token, l.Key, token}, ErrLockAlreadyAcquired)
 	if err != nil {
 		return err
@@ -106,78 +124,139 @@ func (l *DBLock) AcquireWithStaticToken(ctx context.Context, executor sqlExecuto
 }
 
 // Release releases lock for the key in the database.
-func (l *DBLock) Release(ctx context.Context, executor sqlExecutor) error {
-	return execQueryAndCheck(ctx, executor,
+func (l *DBLock) Release(ctx context.Context, executor SQLExecutor) error {
+	return execQueryAndCheckAffectedRow(ctx, executor,
 		l.manager.queries.releaseLock, []interface{}{l.Key, l.token}, ErrLockAlreadyReleased)
 }
 
 // Extend resets expiration timeout for already acquired lock.
 // ErrLockAlreadyReleased error will be returned if lock is already released, in this case lock should be acquired again.
-func (l *DBLock) Extend(ctx context.Context, executor sqlExecutor) error {
+func (l *DBLock) Extend(ctx context.Context, executor SQLExecutor) error {
 	interval := l.manager.queries.intervalMaker(l.TTL)
-	return execQueryAndCheck(ctx, executor,
+	return execQueryAndCheckAffectedRow(ctx, executor,
 		l.manager.queries.extendLock, []interface{}{interval, l.Key, l.token}, ErrLockAlreadyReleased)
 }
 
 // Token returns token of the last acquired lock.
-// May be used in logs to make investigation process easier.
+// May be used in logs to make the investigation process easier.
 func (l *DBLock) Token() string {
 	return l.token
 }
 
-// DoExclusively acquires distributed lock, starts a separate goroutine that periodical extends it and calls passed function.
-// When function is finished, acquired lock is released.
+// Logger is an interface for logging errors.
+type Logger interface {
+	Errorf(format string, args ...interface{})
+}
+
+type doOptions struct {
+	lockTTL                time.Duration
+	periodicExtendInterval time.Duration
+	releaseTimeout         time.Duration
+	logger                 Logger
+}
+
+// DoOption is an option for DoExclusively method.
+type DoOption func(*doOptions)
+
+// WithLockTTL sets TTL for the lock acquired by DoExclusively.
+func WithLockTTL(ttl time.Duration) DoOption {
+	return func(o *doOptions) {
+		o.lockTTL = ttl
+	}
+}
+
+// WithPeriodicExtendInterval sets interval for periodic lock extension.
+func WithPeriodicExtendInterval(interval time.Duration) DoOption {
+	return func(o *doOptions) {
+		o.periodicExtendInterval = interval
+	}
+}
+
+// WithReleaseTimeout sets timeout for lock release.
+func WithReleaseTimeout(timeout time.Duration) DoOption {
+	return func(o *doOptions) {
+		o.releaseTimeout = timeout
+	}
+}
+
+// WithLogger sets logger for DoExclusively.
+func WithLogger(logger Logger) DoOption {
+	return func(o *doOptions) {
+		o.logger = logger
+	}
+}
+
+// DoExclusively acquires distributed lock, calls passed function and releases the lock when the function is finished.
+// Lock is acquired with a default TTL of 1 minute. TTL can be configured with WithLockTTL option.
+// Additionally, the lock is extended periodically within a separate goroutine.
+// Extension interval can be configured with WithPeriodicExtendInterval option. By default, it's half of the lock TTL.
+// When the function is finished, acquired lock is released.
+// Timeout for lock release can be configured with WithReleaseTimeout option. By default, it's 5 seconds.
 func (l *DBLock) DoExclusively(
 	ctx context.Context,
 	dbConn *sql.DB,
-	lockTTL time.Duration,
-	periodicExtendInterval time.Duration,
-	releaseTimeout time.Duration,
-	logger log.FieldLogger,
 	fn func(ctx context.Context) error,
+	options ...DoOption,
 ) error {
+	var opts doOptions
+	for _, opt := range options {
+		opt(&opts)
+	}
+	if opts.lockTTL == 0 {
+		opts.lockTTL = 1 * time.Minute
+	}
+	if opts.periodicExtendInterval == 0 {
+		opts.periodicExtendInterval = opts.lockTTL / 2
+	}
+	if opts.releaseTimeout == 0 {
+		opts.releaseTimeout = 5 * time.Second
+	}
+	if opts.logger == nil {
+		opts.logger = disabledLogger{}
+	}
+
 	if acquireLockErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
-		return l.Acquire(ctx, tx, lockTTL)
+		return l.Acquire(ctx, tx, opts.lockTTL)
 	}); acquireLockErr != nil {
 		return acquireLockErr
 	}
 
-	logger = logger.With(log.String("distrlock_key", l.Key), log.String("distrlock_token", l.token))
-
 	defer func() {
 		// If the ctx is canceled, we should be able to release the lock.
-		releaseCtx, releaseCtxCancel := context.WithTimeout(context.Background(), releaseTimeout)
+		releaseCtx, releaseCtxCancel := context.WithTimeout(context.Background(), opts.releaseTimeout)
 		defer releaseCtxCancel()
 		if releaseLockErr := dbkit.DoInTx(releaseCtx, dbConn, func(tx *sql.Tx) error {
 			return l.Release(releaseCtx, tx)
 		}); releaseLockErr != nil {
-			logger.Error("failed to release db lock", log.Error(releaseLockErr))
+			opts.logger.Errorf("failed to release lock with key %s and token %s, error: %v", l.Key, l.token, releaseLockErr)
 		}
 	}()
 
-	newCtx, newCtxCancel := context.WithCancel(ctx)
-	defer newCtxCancel()
+	childCtx, childCtxCancel := context.WithCancel(ctx)
+	defer childCtxCancel()
+
 	periodicalExtensionExit := make(chan struct{})
 	periodicalExtensionDone := make(chan struct{})
 	defer func() {
 		close(periodicalExtensionDone)
 		<-periodicalExtensionExit
 	}()
+
 	go func() {
 		defer func() { close(periodicalExtensionExit) }()
-		ticker := time.NewTicker(periodicExtendInterval)
+		ticker := time.NewTicker(opts.periodicExtendInterval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-periodicalExtensionDone:
 				return
 			case <-ticker.C:
-				if extendLockErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
+				if extendErr := dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 					return l.Extend(ctx, tx)
-				}); extendLockErr != nil {
-					logger.Error("failed to extend db lock", log.Error(extendLockErr))
-					if errors.Is(extendLockErr, ErrLockAlreadyReleased) {
-						newCtxCancel() // If lock was already released, let's try to stop exclusive job asap.
+				}); extendErr != nil {
+					opts.logger.Errorf("failed to extend lock with key %s and token %s, error: %v", l.Key, l.token, extendErr)
+					if errors.Is(extendErr, ErrLockAlreadyReleased) {
+						childCtxCancel() // If lock was already released, let's try to stop an exclusive job asap.
 						return
 					}
 				}
@@ -185,10 +264,55 @@ func (l *DBLock) DoExclusively(
 		}
 	}()
 
-	return fn(newCtx)
+	return fn(childCtx)
 }
 
-func execQueryAndCheck(ctx context.Context, executor sqlExecutor, query string, args []interface{}, errOnNoAffectedRows error) error {
+// CreateTableSQL returns SQL query for creating a table that stores distributed locks.
+// DefaultTableName is used for the table name. If you need to use a custom table name, construct DBManager and DBLock manually instead.
+func CreateTableSQL(dialect dbkit.Dialect) (string, error) {
+	q, err := newDBQueries(dialect, DefaultTableName)
+	if err != nil {
+		return "", err
+	}
+	return q.createTable, nil
+}
+
+// DropTableSQL returns SQL query for dropping a table that stores distributed locks.
+// DefaultTableName is used for the table name. If you need to use a custom table name, construct DBManager and DBLock manually instead.
+func DropTableSQL(dialect dbkit.Dialect) (string, error) {
+	q, err := newDBQueries(dialect, DefaultTableName)
+	if err != nil {
+		return "", err
+	}
+	return q.dropTable, nil
+}
+
+// DoExclusively acquires distributed lock, calls passed function and releases the lock when the function is finished.
+// It's a ready-to-use helper function that creates a new DBManager, initializes a lock with the given key, and calls DoExclusively on it.
+// DefaultTableName is used for the table name. If you need to use a custom table name, construct DBManager and DBLock manually instead.
+// See DBLock.DoExclusively for more details.
+func DoExclusively(
+	ctx context.Context,
+	dbConn *sql.DB,
+	dbDialect dbkit.Dialect,
+	key string,
+	fn func(ctx context.Context) error,
+	options ...DoOption,
+) error {
+	manager, err := NewDBManager(dbDialect)
+	if err != nil {
+		return fmt.Errorf("create DB manager: %w", err)
+	}
+	lock, err := manager.NewLock(ctx, dbConn, key)
+	if err != nil {
+		return fmt.Errorf("create new lock: %w", err)
+	}
+	return lock.DoExclusively(ctx, dbConn, fn, options...)
+}
+
+func execQueryAndCheckAffectedRow(
+	ctx context.Context, executor SQLExecutor, query string, args []interface{}, errOnNoAffectedRows error,
+) error {
 	result, err := executor.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
@@ -205,9 +329,10 @@ func execQueryAndCheck(ctx context.Context, executor sqlExecutor, query string, 
 		return ctx.Err()
 	}
 
-	if affected, err := result.RowsAffected(); err != nil {
+	var affected int64
+	if affected, err = result.RowsAffected(); err != nil {
 		return err
-	} else if affected != 1 {
+	} else if affected == 0 {
 		return errOnNoAffectedRows
 	}
 	return nil
@@ -250,7 +375,7 @@ func newDBQueries(dialect dbkit.Dialect, tableName string) (dbQueries, error) {
 	}
 }
 
-type sqlExecutor interface {
+type SQLExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
 }
 
@@ -258,7 +383,7 @@ const createTableMigrationID = "distrlock_00001_create_table"
 
 //nolint:lll
 const (
-	postgresCreateTableQuery = `CREATE TABLE "%s" (lock_key varchar(40) PRIMARY KEY, token uuid, expire_at timestamp);`
+	postgresCreateTableQuery = `CREATE TABLE IF NOT EXISTS "%s" (lock_key varchar(40) PRIMARY KEY, token uuid, expire_at timestamp);`
 	postgresDropTableQuery   = `DROP TABLE IF EXISTS "%s";`
 	postgresInitLockQuery    = `INSERT INTO "%s" (lock_key) VALUES ($1) ON CONFLICT (lock_key) DO NOTHING;`
 	postgresAcquireLockQuery = `UPDATE "%s" SET expire_at = NOW() + $1::interval, token = $2 WHERE lock_key = $3 AND ((expire_at IS NULL OR expire_at < NOW()) OR token = $4);`
@@ -267,12 +392,12 @@ const (
 )
 
 func postgresMakeInterval(interval time.Duration) string {
-	return fmt.Sprintf("%d microseconds", interval.Microseconds())
+	return strconv.FormatInt(interval.Microseconds(), 10) + " microseconds"
 }
 
 //nolint:lll
 const (
-	mySQLCreateTableQuery = "CREATE TABLE `%s` (lock_key VARCHAR(40) PRIMARY KEY, token VARCHAR(36), expire_at BIGINT);"
+	mySQLCreateTableQuery = "CREATE TABLE IF NOT EXISTS `%s` (lock_key VARCHAR(40) PRIMARY KEY, token VARCHAR(36), expire_at BIGINT);"
 	mySQLDropTableQuery   = "DROP TABLE IF EXISTS `%s`;"
 	mySQLInitLockQuery    = "INSERT IGNORE `%s` (lock_key) VALUES (?);"
 	mySQLAcquireLockQuery = "UPDATE `%s` SET expire_at = UNIX_TIMESTAMP(DATE_ADD(CURTIME(4), INTERVAL ? MICROSECOND))*10000, token = ? WHERE lock_key = ? AND ((expire_at IS NULL OR expire_at < UNIX_TIMESTAMP(CURTIME(4))*10000) OR token = ?);"
@@ -281,5 +406,9 @@ const (
 )
 
 func mySQLMakeInterval(interval time.Duration) string {
-	return fmt.Sprintf("%d", interval.Microseconds())
+	return strconv.FormatInt(interval.Microseconds(), 10)
 }
+
+type disabledLogger struct{}
+
+func (disabledLogger) Errorf(msg string, args ...interface{}) {}

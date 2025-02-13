@@ -487,20 +487,27 @@ func runDBLockDoExclusivelyTests(t *gotesting.T, dialect dbkit.Dialect) {
 		exJobFinished := make(chan struct{})
 		doExResult := make(chan error)
 		go func() {
-			doExResult <- lock1.DoExclusively(ctx, dbConn, lockTTL, extendInterval, releaseTimeout, logtest.NewLogger(), func(ctx context.Context) error {
+			jobFn := func(ctx context.Context) error {
 				close(exJobStarted)
 				<-exJobFinished // Wait for the job that should be executing exclusively.
 				return nil
-			})
+			}
+			doExResult <- lock1.DoExclusively(ctx, dbConn, jobFn,
+				WithLockTTL(lockTTL),
+				WithPeriodicExtendInterval(extendInterval),
+				WithReleaseTimeout(releaseTimeout),
+				WithLogger(logtest.NewLogger()))
 		}()
 
 		<-exJobStarted // Wait until the exclusive job is started.
 
 		// New lock cannot be acquired since the same key is already locked by another goroutine.
 		for i := 0; i < 7; i++ {
-			err = lock2.DoExclusively(ctx, dbConn, lockTTL, extendInterval, releaseTimeout, logtest.NewLogger(), func(ctx context.Context) error {
-				return nil
-			})
+			err = lock2.DoExclusively(ctx, dbConn, func(ctx context.Context) error { return nil },
+				WithLockTTL(lockTTL),
+				WithPeriodicExtendInterval(extendInterval),
+				WithReleaseTimeout(releaseTimeout),
+				WithLogger(logtest.NewLogger()))
 			require.ErrorIs(t, err, ErrLockAlreadyAcquired)
 			time.Sleep(time.Second)
 		}
@@ -510,9 +517,11 @@ func runDBLockDoExclusivelyTests(t *gotesting.T, dialect dbkit.Dialect) {
 		time.Sleep(lockTTL * 2) // Wait until the lock is released.
 
 		// Now a new lock can be acquired successfully.
-		require.NoError(t, lock2.DoExclusively(ctx, dbConn, lockTTL, extendInterval, releaseTimeout, logtest.NewLogger(), func(ctx context.Context) error {
-			return nil
-		}))
+		require.NoError(t, lock2.DoExclusively(ctx, dbConn, func(ctx context.Context) error { return nil },
+			WithLockTTL(lockTTL),
+			WithPeriodicExtendInterval(extendInterval),
+			WithReleaseTimeout(releaseTimeout),
+			WithLogger(logtest.NewLogger())))
 	})
 
 	t.Run("lock is acquired but periodic extension interval is too long", func(t *gotesting.T) {
@@ -529,19 +538,26 @@ func runDBLockDoExclusivelyTests(t *gotesting.T, dialect dbkit.Dialect) {
 		exJobStarted := make(chan struct{})
 		doExResult := make(chan error)
 		go func() {
-			doExResult <- lock1.DoExclusively(ctx, dbConn, lockTTL, periodicExtendInterval, releaseTimeout, logtest.NewLogger(), func(ctx context.Context) error {
+			jobFn := func(ctx context.Context) error {
 				close(exJobStarted)
 				<-ctx.Done() // The second goroutine should acquire lock since extension interval is too long.
 				return ctx.Err()
-			})
+			}
+			doExResult <- lock1.DoExclusively(ctx, dbConn, jobFn,
+				WithLockTTL(lockTTL),
+				WithPeriodicExtendInterval(periodicExtendInterval),
+				WithReleaseTimeout(releaseTimeout),
+				WithLogger(logtest.NewLogger()))
 		}()
 
 		<-exJobStarted // Wait until the exclusive job is started.
 
 		time.Sleep(lockTTL * 2) // Wait until the lock is released.
-		err = lock2.DoExclusively(ctx, dbConn, lockTTL, periodicExtendInterval, releaseTimeout, logtest.NewLogger(), func(ctx context.Context) error {
-			return nil
-		})
+		err = lock2.DoExclusively(ctx, dbConn, func(ctx context.Context) error { return nil },
+			WithLockTTL(lockTTL),
+			WithPeriodicExtendInterval(periodicExtendInterval),
+			WithReleaseTimeout(releaseTimeout),
+			WithLogger(logtest.NewLogger()))
 		require.NoError(t, err)
 
 		// doExResult should contain the error since the first lock cannot be extended and context was canceled.
