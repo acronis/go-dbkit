@@ -9,10 +9,8 @@ package dbrutil
 import (
 	"time"
 
-	"github.com/gocraft/dbr/v2"
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/acronis/go-dbkit"
+	"github.com/gocraft/dbr/v2"
 )
 
 // QueryMetricsEventReceiverOpts consists options for QueryMetricsEventReceiver.
@@ -22,16 +20,16 @@ type QueryMetricsEventReceiverOpts struct {
 }
 
 // QueryMetricsEventReceiver implements the dbr.EventReceiver interface and collects metrics about SQL queries.
-// To be collected SQL query should be annotated (comment starting with specified prefix).
+// To be collected, SQL query should be annotated (comment starting with specified prefix).
 type QueryMetricsEventReceiver struct {
 	*dbr.NullEventReceiver
-	metricsCollector   *dbkit.MetricsCollector
+	metricsCollector   dbkit.MetricsCollector
 	annotationPrefix   string
 	annotationModifier func(string) string
 }
 
 // NewQueryMetricsEventReceiverWithOpts creates a new QueryMetricsEventReceiver with additinal options.
-func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.MetricsCollector, options QueryMetricsEventReceiverOpts) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.PrometheusMetrics, options QueryMetricsEventReceiverOpts) *QueryMetricsEventReceiver {
 	return &QueryMetricsEventReceiver{
 		metricsCollector:   mc,
 		annotationPrefix:   options.AnnotationPrefix,
@@ -40,7 +38,7 @@ func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.MetricsCollector, options Qu
 }
 
 // NewQueryMetricsEventReceiver creates a new QueryMetricsEventReceiver.
-func NewQueryMetricsEventReceiver(mc *dbkit.MetricsCollector, annotationPrefix string) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiver(mc *dbkit.PrometheusMetrics, annotationPrefix string) *QueryMetricsEventReceiver {
 	options := QueryMetricsEventReceiverOpts{
 		AnnotationPrefix: annotationPrefix,
 	}
@@ -54,6 +52,5 @@ func (er *QueryMetricsEventReceiver) TimingKv(eventName string, nanoseconds int6
 	if annotation == "" {
 		return
 	}
-	labels := prometheus.Labels{dbkit.MetricsLabelQuery: annotation}
-	er.metricsCollector.QueryDurations.With(labels).Observe(time.Duration(nanoseconds).Seconds())
+	er.metricsCollector.ObserveQueryDuration(annotation, time.Duration(nanoseconds))
 }

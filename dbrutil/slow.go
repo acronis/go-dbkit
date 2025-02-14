@@ -20,7 +20,7 @@ type SlowQueryLogEventReceiverOpts struct {
 }
 
 // SlowQueryLogEventReceiver implements the dbr.EventReceiver interface and logs long SQL queries.
-// To be logged SQL query should be annotated (comment starting with specified prefix).
+// To be logged, SQL query should be annotated (comment starting with specified prefix).
 type SlowQueryLogEventReceiver struct {
 	*dbr.NullEventReceiver
 	logger             log.FieldLogger

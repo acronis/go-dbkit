@@ -14,12 +14,15 @@ require (
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/rubenv/sql-migrate v1.0.0
+	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.33.0
 	github.com/testcontainers/testcontainers-go/modules/mariadb v0.33.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.33.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -57,7 +60,6 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/patternmatcher v0.6.0 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
@@ -84,7 +86,6 @@ require (
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/spf13/viper v1.19.0 // indirect
 	github.com/ssgreg/logf v1.4.2 // indirect
 	github.com/ssgreg/logftext v1.1.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
@@ -107,5 +108,4 @@ require (
 	gopkg.in/gorp.v1 v1.7.2 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

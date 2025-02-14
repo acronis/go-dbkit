@@ -30,7 +30,7 @@ func TestMakeMySQLDSN(t *testing.T) {
 	require.Equal(t, wantDSN, gotDSN)
 }
 
-func TestMysqlIsRetryable(t *testing.T) {
+func TestMySQLIsRetryable(t *testing.T) {
 	isRetryable := dbkit.GetIsRetryable(&mysql.MySQLDriver{})
 	require.NotNil(t, isRetryable)
 	require.True(t, isRetryable(&mysql.MySQLError{

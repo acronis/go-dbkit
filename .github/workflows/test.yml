@@ -37,6 +37,9 @@ jobs:
       - name: Run tests with coverage
         run: go test -race -cover -coverprofile="coverage.out" -covermode=atomic -v --coverpkg=./... ./...
 
+      - name: Exclude examples from coverage
+        run: grep -Ev '/examples/' ./coverage.out > ./coverage_filtered.out && mv -f ./coverage_filtered.out ./coverage.out
+
       - name: Check coverage
         run: |
           real_coverage=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')

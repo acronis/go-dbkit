@@ -25,7 +25,7 @@ This approach ensures reliable concurrency control without requiring an external
 The following basic example demonstrates how to use `distrlock` to ensure exclusive execution of a critical section of code:
 
 ```go
-package distrlock_test
+package main
 
 import (
 	"context"
@@ -38,7 +38,7 @@ import (
 	"github.com/acronis/go-dbkit/distrlock"
 )
 
-func ExampleDoExclusively() {
+func main() {
 	// Setup database connection
 	db, err := sql.Open("mysql", os.Getenv("MYSQL_DSN"))
 	if err != nil {
@@ -73,7 +73,7 @@ func ExampleDoExclusively() {
 If you need more customization or/and control over the lock lifecycle, you can use `DBManager` and `DBLock` objects directly:
 
 ```go
-package distrlock_test
+package main
 
 import (
 	"context"
@@ -86,7 +86,7 @@ import (
 	"github.com/acronis/go-dbkit/distrlock"
 )
 
-func ExampleNewDBManager() {
+func main() {
 	// Setup database connection
 	db, err := sql.Open("mysql", os.Getenv("MYSQL_DSN"))
 	if err != nil {

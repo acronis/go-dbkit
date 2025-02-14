@@ -15,7 +15,7 @@ import (
 
 var retryableErrors = map[reflect.Type]retry.IsRetryable{}
 
-// GetIsRetryable returns a function that can tell for given driver if error is retryable.
+// GetIsRetryable returns a function that can tell for a given driver if error is retryable.
 func GetIsRetryable(d driver.Driver) retry.IsRetryable {
 	t := reflect.TypeOf(d)
 	if r, ok := retryableErrors[t]; ok {

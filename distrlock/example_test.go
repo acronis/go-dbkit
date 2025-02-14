@@ -1,3 +1,9 @@
+/*
+Copyright © 2025 Acronis International GmbH.
+
+Released under MIT license.
+*/
+
 package distrlock_test
 
 import (

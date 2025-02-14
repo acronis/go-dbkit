@@ -24,3 +24,13 @@ func TestMSSQLIsRetryable(t *testing.T) {
 	require.False(t, isRetryable(driver.ErrBadConn))
 	require.True(t, isRetryable(fmt.Errorf("wrapped error: %w", mssql.Error{Number: 1205})))
 }
+
+func TestCheckMSSQLError(t *testing.T) {
+	var err error
+	err = mssql.Error{Number: 1205}
+	require.True(t, CheckMSSQLError(err, ErrDeadlock))
+	err = mssql.Error{Number: 9999}
+	require.False(t, CheckMSSQLError(err, ErrDeadlock))
+	err = fmt.Errorf("wrapped error: %w", mssql.Error{Number: 1205})
+	require.True(t, CheckMSSQLError(err, ErrDeadlock))
+}

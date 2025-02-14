@@ -140,6 +140,15 @@ func TestSqliteIsRetryable(t *testing.T) {
 	})))
 }
 
+func TestCheckSQLiteError(t *testing.T) {
+	err := sqlite3.Error{
+		Code:         sqlite3.ErrIoErr,
+		ExtendedCode: sqlite3.ErrIoErrRead,
+	}
+	require.True(t, CheckSQLiteError(err, sqlite3.ErrIoErrRead))
+	require.False(t, CheckSQLiteError(err, sqlite3.ErrIoErrWrite))
+}
+
 func execAndSleepInTx(ctx context.Context, dbConn *sql.DB, stmt string, errCh chan error, sleepTime time.Duration) {
 	tx, txErr := dbConn.BeginTx(ctx, nil)
 	if txErr != nil {

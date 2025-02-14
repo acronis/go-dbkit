@@ -146,25 +146,25 @@ func TestDbrQueryMetricsEventReceiver_TimingKv(t *testing.T) {
 	}()
 
 	t.Run("metrics for query with wrong annotation are not collected", func(t *testing.T) {
-		mc := dbkit.NewMetricsCollector()
+		mc := dbkit.NewPrometheusMetrics()
 		metricsEventReceiver := NewQueryMetricsEventReceiver(mc, "query_")
 		dbSess := dbConn.NewSession(metricsEventReceiver)
 
 		countUsersByName(t, dbSess, "count_users_by_name", "Sam", 2)
 
-		labels := prometheus.Labels{dbkit.MetricsLabelQuery: "count_users_by_name"}
+		labels := prometheus.Labels{dbkit.PrometheusMetricsLabelQuery: "count_users_by_name"}
 		hist := mc.QueryDurations.With(labels).(prometheus.Histogram)
 		testutil.RequireSamplesCountInHistogram(t, hist, 0)
 	})
 
 	t.Run("metrics for query are collected", func(t *testing.T) {
-		mc := dbkit.NewMetricsCollector()
+		mc := dbkit.NewPrometheusMetrics()
 		metricsEventReceiver := NewQueryMetricsEventReceiver(mc, "query_")
 		dbSess := dbConn.NewSession(metricsEventReceiver)
 
 		countUsersByName(t, dbSess, "query_count_users_by_name", "Sam", 2)
 
-		labels := prometheus.Labels{dbkit.MetricsLabelQuery: "query_count_users_by_name"}
+		labels := prometheus.Labels{dbkit.PrometheusMetricsLabelQuery: "query_count_users_by_name"}
 		hist := mc.QueryDurations.With(labels).(prometheus.Histogram)
 		testutil.RequireSamplesCountInHistogram(t, hist, 1)
 	})
