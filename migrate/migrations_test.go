@@ -9,17 +9,18 @@ package migrate
 import (
 	"bytes"
 	"database/sql"
+	"embed"
 	"fmt"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/acronis/go-appkit/log/logtest"
+	_ "github.com/mattn/go-sqlite3"
 	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/require"
 
 	"github.com/acronis/go-dbkit"
-	_ "github.com/acronis/go-dbkit/sqlite"
 )
 
 type testMigration00001CreateTables struct {
@@ -234,20 +235,15 @@ func TestCreationMigrationManagerWithOpts(t *testing.T) {
 	require.NoError(t, err)
 	defer requireNoErrOnClose(t, dbConn)
 
-	migMngr, err := NewMigrationsManagerWithOpts(
-		dbConn,
-		dbkit.DialectSQLite,
-		logtest.NewLogger(),
-		MigrationsManagerOpts{TableName: tableName},
-	)
+	migMngr, err := NewMigrationsManagerWithOpts(dbConn, dbkit.DialectSQLite, logtest.NewLogger(),
+		MigrationsManagerOpts{TableName: tableName})
 	require.NoError(t, err)
-
 	require.Equal(t, tableName, migMngr.migSet.TableName)
 
 	migrations := []Migration{newTestMigration00001CreateTables(), newTestMigration00002SeedTabled()}
 	var rowsNum int
 
-	// Table doesn't exist before migrations.
+	// The table doesn't exist before migrations.
 	require.Error(t, dbConn.QueryRow("select count(*) from custom_migrations").Scan(&rowsNum))
 
 	// Run migrations.
@@ -315,4 +311,167 @@ func TestMigrationsManager_supportRawMigration(t *testing.T) {
 	requireMigrationsApplied(t, dbConn, false, 0, 0)
 	require.NoError(t, migMngr.RunLimit(migrations, MigrationsDirectionDown, 1))
 	requireMigrationsApplied(t, dbConn, true, 0, 0)
+}
+
+//go:embed testdata/sqlite/*.sql
+//go:embed testdata/missing-down-file/*.sql
+//go:embed testdata/missing-up-file/*.sql
+//go:embed testdata/invalid-suffix/*.sql
+var testFS embed.FS
+
+func TestAllLoadEmbedFSMigrations(t *testing.T) {
+	tests := []struct {
+		name        string
+		fs          embed.FS
+		dirName     string
+		wantErrMsg  string
+		expectedIDs []string
+	}{
+		{
+			name:        "valid migrations",
+			fs:          testFS,
+			dirName:     "testdata/sqlite",
+			expectedIDs: []string{"0001_create_users_table", "0002_create_notes_table", "0003_seed_tables"},
+		},
+		{
+			name:       "missing up file",
+			fs:         testFS,
+			dirName:    "testdata/missing-up-file",
+			wantErrMsg: "0001_create_users_table migration up file is missing",
+		},
+		{
+			name:       "missing down file",
+			fs:         testFS,
+			dirName:    "testdata/missing-down-file",
+			wantErrMsg: "0001_create_users_table migration down file is missing",
+		},
+		{
+			name:       "invalid suffix",
+			fs:         testFS,
+			dirName:    "testdata/invalid-suffix",
+			wantErrMsg: "migration file should have .up.sql or .down.sql suffix, got 0001_create_users_table.sql",
+		},
+		{
+			name:       "non-existent directory",
+			fs:         testFS,
+			dirName:    "testdata/non-existent",
+			wantErrMsg: "read migrations directory testdata/non-existent: open testdata/non-existent: file does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			migrations, err := LoadAllEmbedFSMigrations(tt.fs, tt.dirName)
+			if tt.wantErrMsg != "" {
+				require.EqualError(t, err, tt.wantErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, migrations, len(tt.expectedIDs))
+			for i, migration := range migrations {
+				require.Equal(t, tt.expectedIDs[i], migration.ID())
+			}
+
+			dbConn, err := sql.Open("sqlite3", "file::memory:?cache=shared")
+			require.NoError(t, err)
+			defer requireNoErrOnClose(t, dbConn)
+
+			migManager, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
+			require.NoError(t, err)
+			require.NoError(t, migManager.Run(migrations, MigrationsDirectionUp))
+
+			var usersCount int
+			require.NoError(t, dbConn.QueryRow("select count(*) from users").Scan(&usersCount))
+			require.Equal(t, 3, usersCount)
+			var notesCount int
+			require.NoError(t, dbConn.QueryRow("select count(*) from notes").Scan(&notesCount))
+			require.Equal(t, 2, notesCount)
+
+			migStatus, err := migManager.Status()
+			require.NoError(t, err)
+			appliedIDs := make([]string, 0, len(migStatus.AppliedMigrations))
+			for _, mig := range migStatus.AppliedMigrations {
+				appliedIDs = append(appliedIDs, mig.ID)
+			}
+			require.Equal(t, tt.expectedIDs, appliedIDs)
+		})
+	}
+}
+
+func TestLoadEmbedFSMigrations(t *testing.T) {
+	tests := []struct {
+		name         string
+		fs           embed.FS
+		dirName      string
+		migrationIDs []string
+		wantErrMsg   string
+		expectedIDs  []string
+	}{
+		{
+			name:         "valid migrations",
+			fs:           testFS,
+			dirName:      "testdata/sqlite",
+			migrationIDs: []string{"0001_create_users_table", "0002_create_notes_table"},
+			expectedIDs:  []string{"0001_create_users_table", "0002_create_notes_table"},
+		},
+		{
+			name:         "missing up file",
+			fs:           testFS,
+			dirName:      "testdata/missing-up-file",
+			migrationIDs: []string{"0001_create_users_table"},
+			wantErrMsg:   "open testdata/missing-up-file/0001_create_users_table.up.sql: file does not exist",
+		},
+		{
+			name:         "missing down file",
+			fs:           testFS,
+			dirName:      "testdata/missing-down-file",
+			migrationIDs: []string{"0001_create_users_table"},
+			wantErrMsg:   "open testdata/missing-down-file/0001_create_users_table.down.sql: file does not exist",
+		},
+		{
+			name:         "invalid migration ID",
+			fs:           testFS,
+			dirName:      "testdata/sqlite",
+			migrationIDs: []string{"invalid_migration_id"},
+			wantErrMsg:   "open testdata/sqlite/invalid_migration_id.up.sql: file does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			migrations, err := LoadEmbedFSMigrations(tt.fs, tt.dirName, tt.migrationIDs)
+			if tt.wantErrMsg != "" {
+				require.EqualError(t, err, tt.wantErrMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, migrations, len(tt.expectedIDs))
+			for i, migration := range migrations {
+				require.Equal(t, tt.expectedIDs[i], migration.ID())
+			}
+
+			dbConn, err := sql.Open("sqlite3", "file::memory:?cache=shared")
+			require.NoError(t, err)
+			defer requireNoErrOnClose(t, dbConn)
+
+			migManager, err := NewMigrationsManager(dbConn, dbkit.DialectSQLite, logtest.NewLogger())
+			require.NoError(t, err)
+			require.NoError(t, migManager.Run(migrations, MigrationsDirectionUp))
+
+			var usersCount int
+			require.NoError(t, dbConn.QueryRow("select count(*) from users").Scan(&usersCount))
+			require.Equal(t, 0, usersCount)
+			var notesCount int
+			require.NoError(t, dbConn.QueryRow("select count(*) from notes").Scan(&notesCount))
+			require.Equal(t, 0, notesCount)
+
+			migStatus, err := migManager.Status()
+			require.NoError(t, err)
+			appliedIDs := make([]string, 0, len(migStatus.AppliedMigrations))
+			for _, mig := range migStatus.AppliedMigrations {
+				appliedIDs = append(appliedIDs, mig.ID)
+			}
+			require.Equal(t, tt.expectedIDs, appliedIDs)
+		})
+	}
 }

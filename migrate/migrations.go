@@ -9,7 +9,11 @@ package migrate
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/acronis/go-appkit/log"
@@ -18,7 +22,7 @@ import (
 	"github.com/acronis/go-dbkit"
 )
 
-// MigrationsTableName contains name of table in a database that stores applied migrations.
+// MigrationsTableName contains the name of table in a database that stores applied migrations.
 const MigrationsTableName = "migrations"
 
 // MigrationsDirection defines possible values for direction of database migrations.
@@ -44,7 +48,7 @@ type Migration interface {
 	DownFn() func(tx *sql.Tx) error // Not supported yet.
 }
 
-// RawMigrator is an interface which allows overwrite default generate mechanism for full control on migrations.
+// RawMigrator is an interface that allows to overwrite default generate mechanism for full control on migrations.
 // Uses sql-migrate migration structure.
 type RawMigrator interface {
 	RawMigration(m Migration) (*migrate.Migration, error)
@@ -173,8 +177,8 @@ func (mm *MigrationsManager) Run(migrations []Migration, direction MigrationsDir
 }
 
 // convertMigration converts migration to internal sql-migrate format.
-// If migration implements RawMigrator interface then RawMigration function is used.
-// If migration implements TxDisabler interface then it may be not in transaction.
+// If migration implements RawMigrator interface, then RawMigration function is used.
+// If migration implements TxDisabler interface, then it may be not in transaction.
 func convertMigration(m Migration) (*migrate.Migration, error) {
 	if migrator, ok := m.(RawMigrator); ok {
 		raw, err := migrator.RawMigration(m)
@@ -281,4 +285,84 @@ func (ms *MigrationStatus) LastAppliedMigration() (appliedMig AppliedMigration, 
 		return AppliedMigration{}, false
 	}
 	return ms.AppliedMigrations[len(ms.AppliedMigrations)-1], true
+}
+
+// LoadAllEmbedFSMigrations loads all migrations from the embed.FS directory.
+func LoadAllEmbedFSMigrations(fs embed.FS, dirName string) ([]Migration, error) {
+	files, err := fs.ReadDir(dirName)
+	if err != nil {
+		return nil, fmt.Errorf("read migrations directory %s: %w", dirName, err)
+	}
+
+	migrationsMap := make(map[string][2]string)
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		var migrationID string
+		var nameIdx int
+		switch {
+		case strings.HasSuffix(file.Name(), ".up.sql"):
+			migrationID = strings.TrimSuffix(file.Name(), ".up.sql")
+			nameIdx = 0
+		case strings.HasSuffix(file.Name(), ".down.sql"):
+			migrationID = strings.TrimSuffix(file.Name(), ".down.sql")
+			nameIdx = 1
+		default:
+			return nil, fmt.Errorf("migration file should have .up.sql or .down.sql suffix, got %s", file.Name())
+		}
+		names := migrationsMap[migrationID]
+		names[nameIdx] = file.Name()
+		migrationsMap[migrationID] = names
+	}
+
+	migrations := make([]Migration, 0, len(migrationsMap))
+	for migrationID, names := range migrationsMap {
+		if names[0] == "" {
+			return nil, fmt.Errorf("%s migration up file is missing", migrationID)
+		}
+		if names[1] == "" {
+			return nil, fmt.Errorf("%s migration down file is missing", migrationID)
+		}
+		var upSQL []byte
+		if upSQL, err = fs.ReadFile(filepath.Join(dirName, names[0])); err != nil {
+			return nil, err
+		}
+		var downSQL []byte
+		if downSQL, err = fs.ReadFile(filepath.Join(dirName, names[1])); err != nil {
+			return nil, err
+		}
+		migrations = append(migrations, &CustomMigration{
+			id:      migrationID,
+			upSQL:   []string{string(upSQL)},
+			downSQL: []string{string(downSQL)},
+		})
+	}
+
+	sort.Slice(migrations, func(i, j int) bool {
+		return migrations[i].ID() < migrations[j].ID()
+	})
+
+	return migrations, nil
+}
+
+// LoadEmbedFSMigrations loads migrations with specified IDs from the embed.FS directory.
+func LoadEmbedFSMigrations(fs embed.FS, dirName string, migrationIDs []string) ([]Migration, error) {
+	migrations := make([]Migration, 0, len(migrationIDs))
+	for _, migrationID := range migrationIDs {
+		upSQL, err := fs.ReadFile(filepath.Join(dirName, fmt.Sprintf("%s.up.sql", migrationID)))
+		if err != nil {
+			return nil, err
+		}
+		downSQL, err := fs.ReadFile(filepath.Join(dirName, fmt.Sprintf("%s.down.sql", migrationID)))
+		if err != nil {
+			return nil, err
+		}
+		migrations = append(migrations, &CustomMigration{
+			id:      migrationID,
+			upSQL:   []string{string(upSQL)},
+			downSQL: []string{string(downSQL)},
+		})
+	}
+	return migrations, nil
 }

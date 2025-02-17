@@ -1,0 +1,6 @@
+CREATE TABLE notes (
+    id BIGINT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    content TEXT,
+    user_id BIGINT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
