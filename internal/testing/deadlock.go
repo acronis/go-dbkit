@@ -49,7 +49,7 @@ func DeadlockTest(t *testing.T, dialect dbkit.Dialect, checkDeadlockErr func(err
 	go func(ctx context.Context) {
 		defer done.Done()
 
-		tx1Err = dbkit.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
+		tx1Err = dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(fmt.Sprintf("UPDATE %s SET name=$1 WHERE id=$2", table1Name), "test100", 1); err != nil {
 				return err
 			}
@@ -59,13 +59,13 @@ func DeadlockTest(t *testing.T, dialect dbkit.Dialect, checkDeadlockErr func(err
 				return err
 			}
 			return nil
-		})
+		}, dbkit.WithTxOptions(txOpts))
 	}(ctx)
 
 	done.Add(1)
 	go func(ctx context.Context) {
 		defer done.Done()
-		tx2Err = dbkit.DoInTxWithOpts(ctx, dbConn, txOpts, func(tx *sql.Tx) error {
+		tx2Err = dbkit.DoInTx(ctx, dbConn, func(tx *sql.Tx) error {
 			if _, err := tx.Exec(fmt.Sprintf("UPDATE %s SET name=$1 WHERE id=$2", table2Name), "test100", 1); err != nil {
 				return err
 			}
@@ -78,7 +78,7 @@ func DeadlockTest(t *testing.T, dialect dbkit.Dialect, checkDeadlockErr func(err
 			}
 
 			return nil
-		})
+		}, dbkit.WithTxOptions(txOpts))
 	}(ctx)
 
 	done.Wait()

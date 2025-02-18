@@ -2,11 +2,9 @@
 
 [![GoDoc Widget]][GoDoc]
 
-The `migrate` package provides functionality for applying database migrations in your Go applications. It leverages [github.com/rubenv/sql-migrate](https://github.com/rubenv/sql-migrate) under the hood, ensuring a reliable and consistent approach to managing database schema changes.
+`migrate` package provides functionality for applying database migrations in your Go applications. It leverages [github.com/rubenv/sql-migrate](https://github.com/rubenv/sql-migrate) under the hood, ensuring a reliable and consistent approach to managing database schema changes.
 
-## Overview
-
-The `migrate` package offers two primary approaches for defining your migrations:
+It offers two primary approaches for defining your migrations:
 - **Embedded SQL Migrations**: Store your migrations as plain SQL files (with separate `.up.sql` and `.down.sql` files) and embed them into your Go binary using Go's built-in embed package. This approach is straightforward and keeps your SQL scripts separate from your application code.
 - **Programmatic SQL Migrations**: Define your migrations directly in Go code. This method is more suitable when you require additional customization or more control over your migrations. It lets you write migrations as Go functions, while still leveraging SQL commands.
 

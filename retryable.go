@@ -41,3 +41,9 @@ func RegisterIsRetryableFunc(d driver.Driver, retryable retry.IsRetryable) {
 		return retryable(e)
 	}
 }
+
+// UnregisterAllIsRetryableFuncs removes previously registered IsRetryable function for the given driver.
+func UnregisterAllIsRetryableFuncs(d driver.Driver) {
+	t := reflect.TypeOf(d)
+	delete(retryableErrors, t)
+}

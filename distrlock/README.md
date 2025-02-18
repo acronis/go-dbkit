@@ -2,15 +2,13 @@
 
 [![GoDoc Widget]][GoDoc]
 
-## Overview
-
 `distrlock` is a Go package that implements distributed locking using SQL databases.
 It allows multiple processes or services to coordinate access to shared resources by acquiring and releasing locks stored in a database.
 
 ### Features
-- Distributed lock management using SQL databases (PostgreSQL, MySQL are supported now)
-- Support for acquiring, releasing, and extending locks
-- Configurable lock expiration times
+- Distributed lock management using SQL databases (PostgreSQL, MySQL are supported now).
+- Support for acquiring, releasing, and extending locks.
+- Configurable lock expiration times.
 
 ## How It Works
 

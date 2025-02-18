@@ -9,24 +9,20 @@ package dbkit
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"testing"
+	"time"
 
 	"github.com/acronis/go-appkit/retry"
-	"github.com/cenkalti/backoff/v4"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMultipleIsRetryError(t *testing.T) {
-	var called string
+	retryPolicy := retry.NewExponentialBackoffPolicy(time.Millisecond*50, 10)
 
-	// cleanup handlers
-	oldHandlers := retryableErrors
-	retryableErrors = map[reflect.Type]retry.IsRetryable{}
-	defer func() {
-		retryableErrors = oldHandlers
-	}()
+	UnregisterAllIsRetryableFuncs(nil)
 
+	// test multiple IsRetryable functions
+	called := ""
 	RegisterIsRetryableFunc(nil, func(e error) bool {
 		called += "1"
 		return false
@@ -39,11 +35,16 @@ func TestMultipleIsRetryError(t *testing.T) {
 		called += "3"
 		return false
 	})
-
-	p := retry.NewExponentialBackoffPolicy(backoff.DefaultInitialInterval, 10)
-	_ = retry.DoWithRetry(context.Background(), p, GetIsRetryable(nil), nil, func(ctx context.Context) error {
+	_ = retry.DoWithRetry(context.Background(), retryPolicy, GetIsRetryable(nil), nil, func(ctx context.Context) error {
 		return fmt.Errorf("fake error")
 	})
-
 	assert.Equal(t, "123", called, "Wrong call order")
+
+	// unregister all functions and test that no one is called
+	UnregisterAllIsRetryableFuncs(nil)
+	called = ""
+	_ = retry.DoWithRetry(context.Background(), retryPolicy, GetIsRetryable(nil), nil, func(ctx context.Context) error {
+		return fmt.Errorf("fake error")
+	})
+	assert.Equal(t, "", called)
 }

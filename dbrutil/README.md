@@ -2,8 +2,6 @@
 
 [![GoDoc Widget]][GoDoc]
 
-## Overview
-
 `dbrutil` is a Go package that provides utilities and helpers for working with the [dbr query builder](https://github.com/gocraft/dbr).
 It simplifies database operations by offering:
 - **Database Connection Management**: Open a database connection with instrumentation for collecting metrics and logging slow queries.
@@ -14,7 +12,8 @@ It simplifies database operations by offering:
 
 ## Usage
 
-The following basic example demonstrates how to use `dbrutil` to create a database connection and run a transaction:
+The following basic example demonstrates how to use `dbrutil` to open a database connection with instrumentation,
+and execute queries with an automatic slow query logging and Prometheus metrics collection within transaction.
 
 ```go
 package main
