@@ -9,9 +9,13 @@ package dbrutil
 import (
 	"time"
 
-	"github.com/acronis/go-dbkit"
 	"github.com/gocraft/dbr/v2"
 )
+
+// MetricsCollector is an interface for collecting metrics about SQL queries.
+type MetricsCollector interface {
+	ObserveQueryDuration(query string, duration time.Duration)
+}
 
 // QueryMetricsEventReceiverOpts consists options for QueryMetricsEventReceiver.
 type QueryMetricsEventReceiverOpts struct {
@@ -23,13 +27,15 @@ type QueryMetricsEventReceiverOpts struct {
 // To be collected, SQL query should be annotated (comment starting with specified prefix).
 type QueryMetricsEventReceiver struct {
 	*dbr.NullEventReceiver
-	metricsCollector   dbkit.MetricsCollector
+	metricsCollector   MetricsCollector
 	annotationPrefix   string
 	annotationModifier func(string) string
 }
 
 // NewQueryMetricsEventReceiverWithOpts creates a new QueryMetricsEventReceiver with additinal options.
-func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.PrometheusMetrics, options QueryMetricsEventReceiverOpts) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiverWithOpts(
+	mc MetricsCollector, options QueryMetricsEventReceiverOpts,
+) *QueryMetricsEventReceiver {
 	return &QueryMetricsEventReceiver{
 		metricsCollector:   mc,
 		annotationPrefix:   options.AnnotationPrefix,
@@ -38,7 +44,7 @@ func NewQueryMetricsEventReceiverWithOpts(mc *dbkit.PrometheusMetrics, options Q
 }
 
 // NewQueryMetricsEventReceiver creates a new QueryMetricsEventReceiver.
-func NewQueryMetricsEventReceiver(mc *dbkit.PrometheusMetrics, annotationPrefix string) *QueryMetricsEventReceiver {
+func NewQueryMetricsEventReceiver(mc MetricsCollector, annotationPrefix string) *QueryMetricsEventReceiver {
 	options := QueryMetricsEventReceiverOpts{
 		AnnotationPrefix: annotationPrefix,
 	}

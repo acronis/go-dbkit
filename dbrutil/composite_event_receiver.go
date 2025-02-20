@@ -10,7 +10,8 @@ import (
 	"github.com/gocraft/dbr/v2"
 )
 
-// CompositeEventReceiver represents a composition of event receivers from dbr package and implements Composite design pattern.
+// CompositeEventReceiver represents a composition of event receivers from dbr package
+// and implements a Composite design pattern.
 type CompositeEventReceiver struct {
 	Receivers []dbr.EventReceiver
 }

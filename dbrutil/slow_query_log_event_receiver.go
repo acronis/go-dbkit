@@ -13,7 +13,7 @@ import (
 	"github.com/gocraft/dbr/v2"
 )
 
-// SlowQueryLogEventReceiverOpts consists options for SlowQueryLogEventReceiver.
+// SlowQueryLogEventReceiverOpts contains options for SlowQueryLogEventReceiver.
 type SlowQueryLogEventReceiverOpts struct {
 	AnnotationPrefix   string
 	AnnotationModifier func(string) string
@@ -29,9 +29,10 @@ type SlowQueryLogEventReceiver struct {
 	annotationModifier func(string) string
 }
 
-// NewSlowQueryLogEventReceiverWithOpts creates a new SlowQueryLogEventReceiver with additinal options.
-func NewSlowQueryLogEventReceiverWithOpts(logger log.FieldLogger, longQueryTime time.Duration,
-	options SlowQueryLogEventReceiverOpts) *SlowQueryLogEventReceiver {
+// NewSlowQueryLogEventReceiverWithOpts creates a new SlowQueryLogEventReceiver with additional options.
+func NewSlowQueryLogEventReceiverWithOpts(
+	logger log.FieldLogger, longQueryTime time.Duration, options SlowQueryLogEventReceiverOpts,
+) *SlowQueryLogEventReceiver {
 	return &SlowQueryLogEventReceiver{
 		NullEventReceiver:  &dbr.NullEventReceiver{},
 		logger:             logger,

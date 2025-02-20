@@ -12,10 +12,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-type MetricsCollector interface {
-	ObserveQueryDuration(query string, duration time.Duration)
-}
-
 // PrometheusMetricsLabelQuery is a label name for SQL query in Prometheus metrics.
 const PrometheusMetricsLabelQuery = "query"
 
