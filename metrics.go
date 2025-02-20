@@ -18,8 +18,8 @@ const PrometheusMetricsLabelQuery = "query"
 // DefaultQueryDurationBuckets is default buckets into which observations of executing SQL queries are counted.
 var DefaultQueryDurationBuckets = []float64{0.001, 0.01, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
-// MetricsCollectorOpts represents an options for PrometheusMetrics.
-type MetricsCollectorOpts struct {
+// PrometheusMetricsOpts represents an options for PrometheusMetrics.
+type PrometheusMetricsOpts struct {
 	// Namespace is a namespace for metrics. It will be prepended to all metric names.
 	Namespace string
 
@@ -44,11 +44,11 @@ type PrometheusMetrics struct {
 
 // NewPrometheusMetrics creates a new metrics collector.
 func NewPrometheusMetrics() *PrometheusMetrics {
-	return NewPrometheusMetricsWithOpts(MetricsCollectorOpts{})
+	return NewPrometheusMetricsWithOpts(PrometheusMetricsOpts{})
 }
 
 // NewPrometheusMetricsWithOpts is a more configurable version of creating PrometheusMetrics.
-func NewPrometheusMetricsWithOpts(opts MetricsCollectorOpts) *PrometheusMetrics {
+func NewPrometheusMetricsWithOpts(opts PrometheusMetricsOpts) *PrometheusMetrics {
 	queryDurationBuckets := opts.QueryDurationBuckets
 	if queryDurationBuckets == nil {
 		queryDurationBuckets = DefaultQueryDurationBuckets
