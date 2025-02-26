@@ -14,7 +14,7 @@ package mssql
 import (
 	"errors"
 
-	mssql "github.com/denisenkom/go-mssqldb"
+	mssql "github.com/microsoft/go-mssqldb"
 
 	"github.com/acronis/go-dbkit"
 )
