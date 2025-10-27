@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -258,6 +259,9 @@ func (c *Config) DriverNameAndDSN() (driverName, dsn string) {
 	case DialectPostgres:
 		return "postgres", MakePostgresDSN(&c.Postgres)
 	case DialectPgx:
+		c.Postgres.AdditionalParameters["pool_max_conns"] = strconv.Itoa(c.MaxOpenConns)
+		c.Postgres.AdditionalParameters["pool_min_conns"] = strconv.Itoa(c.MaxIdleConns)
+		c.Postgres.AdditionalParameters["pool_max_conn_lifetime"] = c.ConnMaxLifetime.String()
 		return "pgx", MakePostgresDSN(&c.Postgres)
 	case DialectMSSQL:
 		return "mssql", MakeMSSQLDSN(&c.MSSQL)
