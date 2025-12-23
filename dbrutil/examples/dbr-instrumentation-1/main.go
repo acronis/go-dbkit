@@ -40,7 +40,7 @@ func main() {
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	txRunner := dbrutil.NewTxRunner(conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, nil)
 
@@ -56,7 +56,8 @@ func main() {
 	}
 
 	// The following log message will be printed:
-	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query","pid":14030,"annotation":"query:long_operation","duration_ms":1007}
+	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query",
+	// "pid":14030,"annotation":"query:long_operation","duration_ms":1007}
 
 	// Prometheus metrics will be collected:
 	// db_query_duration_seconds_bucket{query="query:long_operation",le="2.5"} 1

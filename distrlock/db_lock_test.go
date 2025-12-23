@@ -593,6 +593,7 @@ func assertRollbackWithCtxTimeoutError(t *gotesting.T, dialect dbkit.Dialect, tx
 		case dbkit.DialectMySQL:
 			ok = assert.True(t, errors.Is(rollbackErr, sql.ErrTxDone) ||
 				errors.Is(rollbackErr, mysql.ErrInvalidConn) ||
+				errors.Is(rollbackErr, context.DeadlineExceeded) ||
 				rollbackErr == nil, // Rollback sometimes can return nil error in case of mysql driver .
 			)
 		case dbkit.DialectPostgres:

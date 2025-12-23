@@ -29,7 +29,7 @@ const (
 	cfgKeyMySQLPort     = "mysql.port"
 	cfgKeyMySQLDatabase = "mysql.database"
 	cfgKeyMySQLUser     = "mysql.user"
-	cfgKeyMySQLPassword = "mysql.password" //nolint: gosec
+	cfgKeyMySQLPassword = "mysql.password" //nolint:gosec // Not a hardcoded password, just a config key
 	cfgKeyMySQLTxLevel  = "mysql.txLevel"
 
 	cfgKeySQLitePath = "sqlite3.path"
@@ -38,7 +38,7 @@ const (
 	cfgKeyPostgresPort             = "postgres.port"
 	cfgKeyPostgresDatabase         = "postgres.database"
 	cfgKeyPostgresUser             = "postgres.user"
-	cfgKeyPostgresPassword         = "postgres.password" //nolint: gosec
+	cfgKeyPostgresPassword         = "postgres.password" //nolint:gosec // Not a hardcoded password, just a config key
 	cfgKeyPostgresTxLevel          = "postgres.txLevel"
 	cfgKeyPostgresSSLMode          = "postgres.sslMode"
 	cfgKeyPostgresSearchPath       = "postgres.searchPath"
@@ -47,7 +47,7 @@ const (
 	cfgKeyMSSQLPort                = "mssql.port"
 	cfgKeyMSSQLDatabase            = "mssql.database"
 	cfgKeyMSSQLUser                = "mssql.user"
-	cfgKeyMSSQLPassword            = "mssql.password" //nolint: gosec
+	cfgKeyMSSQLPassword            = "mssql.password" //nolint:gosec // Not a hardcoded password, just a config key
 	cfgKeyMSSQLTxLevel             = "mssql.txLevel"
 	cfgKeyMSSQLAdditionalParams    = "mssql.additionalParameters"
 )
@@ -291,7 +291,7 @@ func (c *Config) setDialectSpecificConfig(dp config.DataProvider) error {
 	return err
 }
 
-// nolint: dupl
+//nolint:dupl // Similar config setters for different database dialects
 func (c *Config) setMySQLConfig(dp config.DataProvider) error {
 	var err error
 
@@ -317,7 +317,7 @@ func (c *Config) setMySQLConfig(dp config.DataProvider) error {
 	return nil
 }
 
-// nolint: dupl
+//nolint:dupl // Similar config setters for different database dialects
 func (c *Config) setMSSQLConfig(dp config.DataProvider) error {
 	var err error
 
@@ -350,7 +350,7 @@ func (c *Config) setMSSQLConfig(dp config.DataProvider) error {
 	return nil
 }
 
-// nolint: dupl
+//nolint:dupl // Similar config setters for different database dialects
 func (c *Config) setPostgresConfig(dp config.DataProvider, dialect Dialect) error {
 	var err error
 

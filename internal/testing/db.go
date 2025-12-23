@@ -111,7 +111,9 @@ func startPostgresContainer(ctx context.Context) (dsn string, stop func(ctx cont
 	if dsn, err = postgresContainer.ConnectionString(ctx, "sslmode=disable"); err != nil {
 		return "", nil, fmt.Errorf("get connection string: %w", err)
 	}
-	return dsn, postgresContainer.Terminate, nil
+	return dsn, func(ctx context.Context) error {
+		return postgresContainer.Terminate(ctx)
+	}, nil
 }
 
 func startMariaDBContainer(ctx context.Context) (dsn string, stop func(ctx context.Context) error, err error) {
@@ -137,5 +139,7 @@ func startMariaDBContainer(ctx context.Context) (dsn string, stop func(ctx conte
 	if dsn, err = mariaDBContainer.ConnectionString(ctx, "parseTime=true"); err != nil {
 		return "", nil, fmt.Errorf("get connection string: %w", err)
 	}
-	return dsn, mariaDBContainer.Terminate, nil
+	return dsn, func(ctx context.Context) error {
+		return mariaDBContainer.Terminate(ctx)
+	}, nil
 }

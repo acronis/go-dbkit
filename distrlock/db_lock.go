@@ -381,7 +381,7 @@ type SQLExecutor interface {
 
 const createTableMigrationID = "distrlock_00001_create_table"
 
-//nolint:lll
+//nolint:lll // SQL queries are more readable on single lines
 const (
 	postgresCreateTableQuery = `CREATE TABLE IF NOT EXISTS "%s" (lock_key varchar(40) PRIMARY KEY, token uuid, expire_at timestamp);`
 	postgresDropTableQuery   = `DROP TABLE IF EXISTS "%s";`
@@ -395,7 +395,7 @@ func postgresMakeInterval(interval time.Duration) string {
 	return strconv.FormatInt(interval.Microseconds(), 10) + " microseconds"
 }
 
-//nolint:lll
+//nolint:lll // SQL queries are more readable on single lines
 const (
 	mySQLCreateTableQuery = "CREATE TABLE IF NOT EXISTS `%s` (lock_key VARCHAR(40) PRIMARY KEY, token VARCHAR(36), expire_at BIGINT);"
 	mySQLDropTableQuery   = "DROP TABLE IF EXISTS `%s`;"

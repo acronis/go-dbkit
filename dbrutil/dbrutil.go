@@ -122,7 +122,7 @@ func (s *TxSession) BeginTx(ctx context.Context) (*dbr.Tx, error) {
 // DoInTx begins a new transaction, calls passed function and do commit or rollback
 // depending on whether the function returns an error or not.
 func (s *TxSession) DoInTx(ctx context.Context, fn func(runner dbr.SessionRunner) error) error {
-	if s.Connection.Dialect == dialect.SQLite3 {
+	if s.Dialect == dialect.SQLite3 {
 		// race of ctx cancel with transaction begin leads to 'cannot start a transaction within a transaction'
 		// https://github.com/mattn/go-sqlite3/pull/765
 		ctx = context.TODO()
@@ -210,9 +210,9 @@ func ParseAnnotationInQuery(query, prefix string, modifier func(string) string) 
 			}
 			if annotation != "" {
 				if buf.Len() != 0 {
-					buf.WriteString("|") // nolint: gosec
+					buf.WriteString("|") //nolint:gosec // bytes.Buffer.WriteString never returns an error
 				}
-				buf.WriteString(annotation) // nolint: gosec
+				buf.WriteString(annotation) //nolint:gosec // bytes.Buffer.WriteString never returns an error
 			}
 		}
 		left = right + 2

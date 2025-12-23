@@ -27,6 +27,11 @@ import (
 //go:embed postgres/*.sql
 var migrationFS embed.FS
 
+const (
+	driverMySQL    = "mysql"
+	driverPostgres = "postgres"
+)
+
 func main() {
 	if err := runMigrations(); err != nil {
 		stdlog.Fatal(err)
@@ -71,12 +76,12 @@ func runMigrations() error {
 
 func parseDialectFromDriver(driverName string) (dialect dbkit.Dialect, migrationDirName string, err error) {
 	switch driverName {
-	case "mysql":
-		return dbkit.DialectMySQL, "mysql", nil
-	case "postgres":
-		return dbkit.DialectPostgres, "postgres", nil
+	case driverMySQL:
+		return dbkit.DialectMySQL, driverMySQL, nil
+	case driverPostgres:
+		return dbkit.DialectPostgres, driverPostgres, nil
 	case "pgx":
-		return dbkit.DialectPgx, "postgres", nil
+		return dbkit.DialectPgx, driverPostgres, nil
 	default:
 		return "", "", fmt.Errorf("unknown driver name: %s", driverName)
 	}

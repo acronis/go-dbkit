@@ -38,7 +38,7 @@ func main() {
 	if err != nil {
 		stdlog.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Construct the middleware that will put the transaction runner into the request context.
 	var txRunnerOpts dbrutil.TxRunnerMiddlewareOpts
@@ -77,7 +77,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/long-operation", h)
 	mux.Handle("/metrics", promhttp.Handler())
-	if srvErr := http.ListenAndServe(":8080", mux); srvErr != nil && errors.Is(srvErr, http.ErrServerClosed) {
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if srvErr := srv.ListenAndServe(); srvErr != nil && errors.Is(srvErr, http.ErrServerClosed) {
 		stdlog.Fatalf("failed to start server: %v", srvErr)
 	}
 }
