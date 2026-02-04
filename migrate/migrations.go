@@ -11,7 +11,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -325,11 +325,11 @@ func LoadAllEmbedFSMigrations(fs embed.FS, dirName string) ([]Migration, error) 
 			return nil, fmt.Errorf("%s migration down file is missing", migrationID)
 		}
 		var upSQL []byte
-		if upSQL, err = fs.ReadFile(filepath.Join(dirName, names[0])); err != nil {
+		if upSQL, err = fs.ReadFile(path.Join(dirName, names[0])); err != nil {
 			return nil, err
 		}
 		var downSQL []byte
-		if downSQL, err = fs.ReadFile(filepath.Join(dirName, names[1])); err != nil {
+		if downSQL, err = fs.ReadFile(path.Join(dirName, names[1])); err != nil {
 			return nil, err
 		}
 		migrations = append(migrations, &CustomMigration{
@@ -350,11 +350,11 @@ func LoadAllEmbedFSMigrations(fs embed.FS, dirName string) ([]Migration, error) 
 func LoadEmbedFSMigrations(fs embed.FS, dirName string, migrationIDs []string) ([]Migration, error) {
 	migrations := make([]Migration, 0, len(migrationIDs))
 	for _, migrationID := range migrationIDs {
-		upSQL, err := fs.ReadFile(filepath.Join(dirName, fmt.Sprintf("%s.up.sql", migrationID)))
+		upSQL, err := fs.ReadFile(path.Join(dirName, fmt.Sprintf("%s.up.sql", migrationID)))
 		if err != nil {
 			return nil, err
 		}
-		downSQL, err := fs.ReadFile(filepath.Join(dirName, fmt.Sprintf("%s.down.sql", migrationID)))
+		downSQL, err := fs.ReadFile(path.Join(dirName, fmt.Sprintf("%s.down.sql", migrationID)))
 		if err != nil {
 			return nil, err
 		}
