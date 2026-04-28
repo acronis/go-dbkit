@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -94,6 +95,191 @@ func queryDatabase(
 	}
 
 	return sqlResult, sqlRows, sqlRow, queryErr
+}
+
+// BuildLiteralSQL builds a SQL string with all arguments interpolated inline (non-prepared mode).
+// Use with caution: since all argument values are embedded directly into the query string,
+// the result may expose sensitive user data. Avoid using it for logging or any output
+// that could be stored or transmitted insecurely.
+func BuildLiteralSQL(sqlExpression exp.SQLExpression) (string, error) {
+	toSQL := toNonPreparedExpression(sqlExpression)
+	query, _, err := toSQL.ToSQL()
+	if err != nil {
+		return "", fmt.Errorf("query building: %w", err)
+	}
+	return query, nil
+}
+
+// toNonPreparedExpression switches a known goqu dataset to non-prepared mode so that
+// ToSQL() inlines argument values instead of emitting '?' placeholders. Falls back to
+// the preparableExpression interface for custom types, and finally returns the input
+// as-is when neither applies.
+func toNonPreparedExpression(sqlExpression exp.SQLExpression) exp.SQLExpression {
+	switch e := sqlExpression.(type) {
+	case *goqu.SelectDataset:
+		return e.Prepared(false)
+	case *goqu.InsertDataset:
+		return e.Prepared(false)
+	case *goqu.UpdateDataset:
+		return e.Prepared(false)
+	case *goqu.DeleteDataset:
+		return e.Prepared(false)
+	case *goqu.TruncateDataset:
+		return e.Prepared(false)
+	}
+	type preparableExpression interface {
+		Prepared(prepared bool) exp.SQLExpression
+	}
+	if p, ok := sqlExpression.(preparableExpression); ok {
+		return p.Prepared(false)
+	}
+	return sqlExpression
+}
+
+// QueryExplain executes EXPLAIN for the given expression and returns the result rows.
+// Each inner slice contains the column values of a single output row as strings.
+func QueryExplain(q Querier, sqlExpression exp.SQLExpression) ([][]string, error) {
+	return runExplain(q, sqlExpression, "EXPLAIN")
+}
+
+// QueryExplainString executes EXPLAIN for the given expression and returns the result as a formatted text table.
+func QueryExplainString(q Querier, sqlExpression exp.SQLExpression) (string, error) {
+	return runExplainString(q, sqlExpression, "EXPLAIN")
+}
+
+// QueryExplainQueryPlan executes EXPLAIN QUERY PLAN for the given expression and returns the result rows.
+// Each inner slice contains the column values of a single output row as strings.
+// Note: EXPLAIN QUERY PLAN is supported by SQLite. For MySQL/PostgreSQL use QueryExplain.
+func QueryExplainQueryPlan(q Querier, sqlExpression exp.SQLExpression) ([][]string, error) {
+	return runExplain(q, sqlExpression, "EXPLAIN QUERY PLAN")
+}
+
+// QueryExplainQueryPlanString executes EXPLAIN QUERY PLAN for the given expression and returns the result as a
+// formatted text table.
+// Note: EXPLAIN QUERY PLAN is supported by SQLite. For MySQL/PostgreSQL use QueryExplainString.
+func QueryExplainQueryPlanString(q Querier, sqlExpression exp.SQLExpression) (string, error) {
+	return runExplainString(q, sqlExpression, "EXPLAIN QUERY PLAN")
+}
+
+func runExplain(q Querier, sqlExpression exp.SQLExpression, prefix string) ([][]string, error) {
+	data, err := queryExplainRows(q, sqlExpression, prefix)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	return data[1:], nil
+}
+
+func runExplainString(q Querier, sqlExpression exp.SQLExpression, prefix string) (string, error) {
+	data, err := queryExplainRows(q, sqlExpression, prefix)
+	if err != nil {
+		return "", err
+	}
+	return formatTable(data), nil
+}
+
+func queryExplainRows(q Querier, sqlExpression exp.SQLExpression, prefix string) ([][]string, error) {
+	literalSQL, err := BuildLiteralSQL(sqlExpression)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.Query(prefix + " " + literalSQL)
+	if err != nil {
+		return nil, fmt.Errorf("explain query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("explain columns: %w", err)
+	}
+
+	data := [][]string{cols}
+	for rows.Next() {
+		row, scanErr := scanRowAsStrings(rows, len(cols))
+		if scanErr != nil {
+			return nil, fmt.Errorf("explain scan: %w", scanErr)
+		}
+		data = append(data, row)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("explain rows: %w", err)
+	}
+	return data, nil
+}
+
+func scanRowAsStrings(rows *sql.Rows, colCount int) ([]string, error) {
+	vals := make([]sql.NullString, colCount)
+	ptrs := make([]interface{}, colCount)
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := rows.Scan(ptrs...); err != nil {
+		return nil, err
+	}
+	row := make([]string, colCount)
+	for i, v := range vals {
+		if v.Valid {
+			row[i] = v.String
+		} else {
+			row[i] = "NULL"
+		}
+	}
+	return row, nil
+}
+
+func formatTable(data [][]string) string {
+	if len(data) == 0 {
+		return ""
+	}
+	widths := make([]int, len(data[0]))
+	for _, row := range data {
+		for i, cell := range row {
+			if len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+
+	// Pre-calculate separator capacity: "+" + (" " + w + " " + "+") per column.
+	sepCap := 1
+	for _, w := range widths {
+		sepCap += w + 3
+	}
+	var sepB strings.Builder
+	sepB.Grow(sepCap)
+	sepB.WriteByte('+')
+	for _, w := range widths {
+		sepB.WriteString(strings.Repeat("-", w+2))
+		sepB.WriteByte('+')
+	}
+	sep := sepB.String()
+
+	var sb strings.Builder
+	writeRow := func(row []string) {
+		sb.WriteByte('|')
+		for i, cell := range row {
+			sb.WriteByte(' ')
+			sb.WriteString(cell)
+			sb.WriteString(strings.Repeat(" ", widths[i]-len(cell)))
+			sb.WriteString(" |")
+		}
+		sb.WriteByte('\n')
+	}
+
+	for i, row := range data {
+		if i == 0 {
+			sb.WriteString(sep + "\n")
+		}
+		writeRow(row)
+		if i == 0 {
+			sb.WriteString(sep + "\n")
+		}
+	}
+	sb.WriteString(sep + "\n")
+	return sb.String()
 }
 
 // BuildSQLAndExec is a function for running DML not returning any data like UPDATE, DELETE, INSERT

@@ -83,6 +83,50 @@ type goquSuite struct {
 	bs SQLBuilderSettings
 }
 
+func TestFormatTable(t *testing.T) {
+	t.Run("empty input", func(t *testing.T) {
+		require.Equal(t, "", formatTable(nil))
+		require.Equal(t, "", formatTable([][]string{}))
+	})
+
+	t.Run("header only", func(t *testing.T) {
+		got := formatTable([][]string{{"id", "name"}})
+		require.Equal(t, ""+
+			"+----+------+\n"+
+			"| id | name |\n"+
+			"+----+------+\n"+
+			"+----+------+\n", got)
+	})
+
+	t.Run("header and rows", func(t *testing.T) {
+		got := formatTable([][]string{
+			{"id", "name"},
+			{"1", "Albert"},
+			{"42", "Bob"},
+		})
+		require.Equal(t, ""+
+			"+----+--------+\n"+
+			"| id | name   |\n"+
+			"+----+--------+\n"+
+			"| 1  | Albert |\n"+
+			"| 42 | Bob    |\n"+
+			"+----+--------+\n", got)
+	})
+
+	t.Run("NULL values represented as NULL string", func(t *testing.T) {
+		got := formatTable([][]string{
+			{"col"},
+			{"NULL"},
+		})
+		require.Equal(t, ""+
+			"+------+\n"+
+			"| col  |\n"+
+			"+------+\n"+
+			"| NULL |\n"+
+			"+------+\n", got)
+	})
+}
+
 func TestGoqutils(t *testing.T) {
 	suite.Run(t, &goquSuite{})
 }
@@ -90,6 +134,95 @@ func TestGoqutils(t *testing.T) {
 func (s *goquSuite) SetupTest() {
 	s.db = openAndSeedDB(s.T())
 	s.bs = SQLBuilderSettings{goqu.Dialect("sqlite3")}
+}
+
+func (s *goquSuite) TestBuildLiteralSQL() {
+	query, err := BuildLiteralSQL(s.bs.Dialect.From("users").Select(goqu.I("name")).
+		Where(goqu.I("id").Eq(1)))
+	s.Require().NoError(err)
+	s.Require().Equal(`SELECT "name" FROM "users" WHERE ("id" = 1)`, query)
+
+	query, err = BuildLiteralSQL(s.bs.Dialect.From("users").Select(goqu.I("id"), goqu.I("name")).
+		Where(goqu.I("name").In("Albert", "Bob")))
+	s.Require().NoError(err)
+	s.Require().Equal(`SELECT "id", "name" FROM "users" WHERE ("name" IN ('Albert', 'Bob'))`, query)
+}
+
+// TestBuildLiteralSQL_HandlesPreparedDatasets is a regression test for the bug
+// where BuildLiteralSQL silently returned a prepared SQL string (with '?'
+// placeholders) for goqu's built-in dataset types. Each built-in type's
+// Prepared method returns its own concrete type, which does not satisfy the
+// preparableExpression interface (Go interfaces are not covariant in return
+// types), so the interface-based assertion always failed.
+func (s *goquSuite) TestBuildLiteralSQL_HandlesPreparedDatasets() {
+	d := s.bs.Dialect
+
+	insertExpr := d.Insert(goqu.T("users")).Prepared(true).Rows(goqu.Record{"id": 1, "name": "x"})
+	got, err := BuildLiteralSQL(insertExpr)
+	s.Require().NoError(err)
+	s.Require().NotContains(got, "?")
+	s.Require().Contains(got, "1")
+	s.Require().Contains(got, "'x'")
+
+	updateExpr := d.Update("users").Prepared(true).Set(goqu.Record{"name": "y"}).
+		Where(goqu.I("id").Eq(7))
+	got, err = BuildLiteralSQL(updateExpr)
+	s.Require().NoError(err)
+	s.Require().NotContains(got, "?")
+	s.Require().Contains(got, "'y'")
+	s.Require().Contains(got, "7")
+
+	deleteExpr := d.Delete("users").Prepared(true).Where(goqu.I("id").Eq(42))
+	got, err = BuildLiteralSQL(deleteExpr)
+	s.Require().NoError(err)
+	s.Require().NotContains(got, "?")
+	s.Require().Contains(got, "42")
+
+	selectExpr := d.From("users").Prepared(true).Where(goqu.I("name").Eq("z"))
+	got, err = BuildLiteralSQL(selectExpr)
+	s.Require().NoError(err)
+	s.Require().NotContains(got, "?")
+	s.Require().Contains(got, "'z'")
+}
+
+func (s *goquSuite) TestQueryExplain() {
+	_ = s.db.DoInTx(func(q Querier) error {
+		rows, err := QueryExplain(q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)))
+		s.Require().NoError(err)
+		s.Require().NotEmpty(rows)
+		return nil
+	})
+}
+
+func (s *goquSuite) TestQueryExplainString() {
+	_ = s.db.DoInTx(func(q Querier) error {
+		result, err := QueryExplainString(q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)))
+		s.Require().NoError(err)
+		s.Require().NotEmpty(result)
+		s.Require().Contains(result, "|")
+		s.Require().Contains(result, "+")
+		return nil
+	})
+}
+
+func (s *goquSuite) TestQueryExplainQueryPlan() {
+	_ = s.db.DoInTx(func(q Querier) error {
+		rows, err := QueryExplainQueryPlan(q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)))
+		s.Require().NoError(err)
+		s.Require().NotEmpty(rows)
+		return nil
+	})
+}
+
+func (s *goquSuite) TestQueryExplainQueryPlanString() {
+	_ = s.db.DoInTx(func(q Querier) error {
+		result, err := QueryExplainQueryPlanString(q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)))
+		s.Require().NoError(err)
+		s.Require().NotEmpty(result)
+		s.Require().Contains(result, "|")
+		s.Require().Contains(result, "+")
+		return nil
+	})
 }
 
 func (s *goquSuite) TestBuildSQLAndExec() {
@@ -117,14 +250,16 @@ func (s *goquSuite) TestBuildSQLAndQueryScalar() {
 		var name string
 		s.Require().NoError(
 			BuildSQLAndQueryScalar(
-				q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)), &name,
+				q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(1)),
+				&name,
 			),
 		)
 		s.Require().Equal("Albert", name)
 		s.Require().Equal(
 			ErrNotFound,
 			BuildSQLAndQueryScalar(
-				q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(123)), &name,
+				q, s.bs.Dialect.From("users").Select(goqu.I("name")).Where(goqu.I("id").Eq(123)),
+				&name,
 			),
 		)
 		return nil
