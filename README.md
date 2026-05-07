@@ -61,7 +61,8 @@ import (
 
 	"github.com/acronis/go-dbkit"
 
-	// Import the `mysql` package for registering the retryable function for MySQL transient errors (like deadlocks).
+	// Import the `mysql` package for registering the retryable function for MySQL transient
+	// errors (like deadlocks).
 	_ "github.com/acronis/go-dbkit/mysql"
 )
 
@@ -89,11 +90,13 @@ func main() {
 	}
 	defer db.Close()
 
-	// Execute a transaction with a custom retry policy (exponential backoff with 3 retries, starting from 10ms).
+	// Execute a transaction with a custom retry policy (exponential backoff with 3 retries,
+	// starting from 10ms).
 	retryPolicy := retry.NewConstantBackoffPolicy(10*time.Millisecond, 3)
 	if err = dbkit.DoInTx(context.Background(), db, func(tx *sql.Tx) error {
 		// Execute your transactional operations here.
-		// Example: _, err := tx.Exec("UPDATE users SET last_login = ? WHERE id = ?", time.Now(), 1)
+		// Example: _, err := tx.Exec("UPDATE users SET last_login = ? WHERE id = ?",
+		// time.Now(), 1)
 		return nil
 	}, dbkit.WithRetryPolicy(retryPolicy)); err != nil {
 		log.Fatal(err)
@@ -112,22 +115,23 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	stdlog "log"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/acronis/go-appkit/log"
 	"github.com/gocraft/dbr/v2"
-	
+
 	"github.com/acronis/go-dbkit"
 	"github.com/acronis/go-dbkit/dbrutil"
 )
 
 func main() {
-	logger, loggerClose := log.NewLogger(&log.Config{Output: log.OutputStderr, Level: log.LevelInfo})
+	logger, loggerClose := log.NewLogger(&log.Config{
+		Output: log.OutputStderr,
+		Level:  log.LevelInfo,
+	})
 	defer loggerClose()
 
 	// Create a Prometheus metrics collector.
@@ -150,18 +154,21 @@ func main() {
 	txRunner := dbrutil.NewTxRunner(conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, nil)
 
 	// Execute function in a transaction.
-	// The transaction will be automatically committed if the function returns nil, otherwise it will be rolled back.
+	// The transaction will be automatically committed if the function returns nil, otherwise it
+	// will be rolled back.
 	if dbErr := txRunner.DoInTx(context.Background(), func(tx dbr.SessionRunner) error {
 		var result int
 		return tx.Select("SLEEP(1)").
-			Comment(annotateQuery("long_operation")). // Annotate the query for Prometheus metrics and slow query log.
+			// Annotate the query for Prometheus metrics and slow query log.
+			Comment(annotateQuery("long_operation")).
 			LoadOne(&result)
 	}); dbErr != nil {
 		stdlog.Fatal(dbErr)
 	}
 
 	// The following log message will be printed:
-	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query","pid":14030,"annotation":"query:long_operation","duration_ms":1007}
+	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query",
+	// "pid":14030, "annotation":"query:long_operation","duration_ms":1007}
 
 	// Prometheus metrics will be collected:
 	// db_query_duration_seconds_bucket{query="query:long_operation",le="2.5"} 1
@@ -187,8 +194,10 @@ func openDB(eventReceiver dbr.EventReceiver) (*dbr.Connection, error) {
 		},
 	}
 
-	// Open database with instrumentation based on the provided event receiver (see github.com/gocraft/dbr doc for details).
-	// Opening includes configuring the max open/idle connections and their lifetime and pinging the database.
+	// Open database with instrumentation based on the provided event receiver
+	// (see github.com/gocraft/dbr doc for details).
+	// Opening includes configuring the max open/idle connections and their lifetime and
+	// pinging the database.
 	conn, err := dbrutil.Open(cfg, true, eventReceiver)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -238,11 +247,13 @@ func main() {
 	}
 
 	// Do some work exclusively.
-	const lockKey = "test-lock-key-1" // Unique key that will be used to ensure exclusive execution among multiple instances
-	err = distrlock.DoExclusively(ctx, db, dbkit.DialectMySQL, lockKey, func(ctx context.Context) error {
-		time.Sleep(10 * time.Second) // Simulate work.
-		return nil
-	})
+	// Unique key that will be used to ensure exclusive execution among multiple instances
+	const lockKey = "test-lock-key-1"
+	err = distrlock.DoExclusively(ctx, db, dbkit.DialectMySQL, lockKey,
+		func(ctx context.Context) error {
+			time.Sleep(10 * time.Second) // Simulate work.
+			return nil
+		})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -253,7 +264,7 @@ More examples and detailed usage instructions can be found in the `distrlock` pa
 
 ## License
 
-Copyright © 2024 Acronis International GmbH.
+Copyright © 2024-2025 Acronis International GmbH.
 
 Licensed under [MIT License](./LICENSE).
 

@@ -21,22 +21,23 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	stdlog "log"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/acronis/go-appkit/log"
 	"github.com/gocraft/dbr/v2"
-	
+
 	"github.com/acronis/go-dbkit"
 	"github.com/acronis/go-dbkit/dbrutil"
 )
 
 func main() {
-	logger, loggerClose := log.NewLogger(&log.Config{Output: log.OutputStderr, Level: log.LevelInfo})
+	logger, loggerClose := log.NewLogger(&log.Config{
+		Output: log.OutputStderr,
+		Level:  log.LevelInfo,
+	})
 	defer loggerClose()
 
 	// Create a Prometheus metrics collector.
@@ -59,18 +60,21 @@ func main() {
 	txRunner := dbrutil.NewTxRunner(conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, nil)
 
 	// Execute function in a transaction.
-	// The transaction will be automatically committed if the function returns nil, otherwise it will be rolled back.
+	// The transaction will be automatically committed if the function returns nil, otherwise it
+	// will be rolled back.
 	if dbErr := txRunner.DoInTx(context.Background(), func(tx dbr.SessionRunner) error {
 		var result int
 		return tx.Select("SLEEP(1)").
-			Comment(annotateQuery("long_operation")). // Annotate the query for Prometheus metrics and slow query log.
+			// Annotate the query for Prometheus metrics and slow query log.
+			Comment(annotateQuery("long_operation")).
 			LoadOne(&result)
 	}); dbErr != nil {
 		stdlog.Fatal(dbErr)
 	}
 
 	// The following log message will be printed:
-	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query","pid":14030,"annotation":"query:long_operation","duration_ms":1007}
+	// {"level":"warn","time":"2025-02-14T16:29:55.429257+02:00","msg":"slow SQL query",
+	// "pid":14030, "annotation":"query:long_operation","duration_ms":1007}
 
 	// Prometheus metrics will be collected:
 	// db_query_duration_seconds_bucket{query="query:long_operation",le="2.5"} 1
@@ -96,8 +100,10 @@ func openDB(eventReceiver dbr.EventReceiver) (*dbr.Connection, error) {
 		},
 	}
 
-	// Open database with instrumentation based on the provided event receiver (see github.com/gocraft/dbr doc for details).
-	// Opening includes configuring the max open/idle connections and their lifetime and pinging the database.
+	// Open database with instrumentation based on the provided event receiver
+	// (see github.com/gocraft/dbr doc for details).
+	// Opening includes configuring the max open/idle connections and their lifetime and
+	// pinging the database.
 	conn, err := dbrutil.Open(cfg, true, eventReceiver)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -184,7 +190,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/long-operation", h)
 	mux.Handle("/metrics", promhttp.Handler())
-	if srvErr := http.ListenAndServe(":8080", mux); srvErr != nil && errors.Is(srvErr, http.ErrServerClosed) {
+	srv := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if srvErr := srv.ListenAndServe(); srvErr != nil && !errors.Is(srvErr, http.ErrServerClosed) {
 		stdlog.Fatalf("failed to start server: %v", srvErr)
 	}
 }
@@ -241,7 +254,7 @@ db_query_duration_seconds_count{query="query:long_operation"} 1
 
 ## License
 
-Copyright © 2024 Acronis International GmbH.
+Copyright © 2025-2026 Acronis International GmbH.
 
 Licensed under [MIT License](./../LICENSE).
 

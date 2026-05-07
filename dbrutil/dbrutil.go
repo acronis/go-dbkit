@@ -69,7 +69,7 @@ func (e *TxRollbackError) Error() string {
 	return fmt.Sprintf("error while transaction rollback: %s", e.Inner)
 }
 
-// TxBeginError is a error that may occur when begging transaction is failed.
+// TxBeginError is an error that may occur when beginning a transaction fails.
 type TxBeginError struct {
 	Inner error
 }
@@ -81,7 +81,7 @@ func (e *TxBeginError) Unwrap() error {
 
 // Error returns a string representation of TxBeginError.
 func (e *TxBeginError) Error() string {
-	return fmt.Sprintf("error while begging transaction: %s", e.Inner)
+	return fmt.Sprintf("error while beginning transaction: %s", e.Inner)
 }
 
 // TxRunner can begin a new transaction and provides the ability to execute code inside already started one.
@@ -121,6 +121,8 @@ func (s *TxSession) BeginTx(ctx context.Context) (*dbr.Tx, error) {
 
 // DoInTx begins a new transaction, calls passed function and do commit or rollback
 // depending on whether the function returns an error or not.
+//
+//nolint:contextcheck // inherited context is replaced for sqlite3, see comment below
 func (s *TxSession) DoInTx(ctx context.Context, fn func(runner dbr.SessionRunner) error) error {
 	if s.Dialect == dialect.SQLite3 {
 		// race of ctx cancel with transaction begin leads to 'cannot start a transaction within a transaction'

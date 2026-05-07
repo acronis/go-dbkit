@@ -96,6 +96,7 @@ func NewConfig(supportedDialects []Dialect, options ...ConfigOption) *Config {
 
 // NewConfigWithKeyPrefix creates a new instance of the Config with a key prefix.
 // This prefix will be used by config.Loader.
+//
 // Deprecated: use NewConfig with WithKeyPrefix instead.
 func NewConfigWithKeyPrefix(keyPrefix string, supportedDialects []Dialect) *Config {
 	if keyPrefix != "" {
@@ -266,14 +267,12 @@ func (c *Config) DriverNameAndDSN() (driverName, dsn string) {
 }
 
 func (c *Config) setDialectSpecificConfig(dp config.DataProvider) error {
-	var err error
-
-	var supportedDialectsStr []string
+	supportedDialectsStr := make([]string, 0, len(c.SupportedDialects()))
 	for _, dialect := range c.SupportedDialects() {
 		supportedDialectsStr = append(supportedDialectsStr, string(dialect))
 	}
-	var dialectStr string
-	if dialectStr, err = dp.GetStringFromSet(cfgKeyDialect, supportedDialectsStr, false); err != nil {
+	dialectStr, err := dp.GetStringFromSet(cfgKeyDialect, supportedDialectsStr, false)
+	if err != nil {
 		return err
 	}
 	c.Dialect = Dialect(dialectStr)

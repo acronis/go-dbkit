@@ -49,14 +49,15 @@ func TestSqliteRetryOnBusyError(t *testing.T) {
 	var attempts int
 	var firstErr error
 	backOffPolicy := retry.NewConstantBackoffPolicy(time.Millisecond*busyTimeoutMs/2, 10)
-	require.NoError(t, retry.DoWithRetry(context.Background(), backOffPolicy, dbkit.GetIsRetryable(dbConn2.Driver()), nil, func(ctx context.Context) error {
-		attempts++
-		execErr := execInTx(ctx, dbConn2, `insert into foo values (2, "two")`)
-		if firstErr == nil {
-			firstErr = execErr
-		}
-		return execErr
-	}))
+	require.NoError(t, retry.DoWithRetry(context.Background(), backOffPolicy, dbkit.GetIsRetryable(dbConn2.Driver()), nil,
+		func(ctx context.Context) error {
+			attempts++
+			execErr := execInTx(ctx, dbConn2, `insert into foo values (2, "two")`)
+			if firstErr == nil {
+				firstErr = execErr
+			}
+			return execErr
+		}))
 	var sqliteErr sqlite3.Error
 	require.ErrorAs(t, firstErr, &sqliteErr)
 	require.ErrorIs(t, sqliteErr.Code, sqlite3.ErrBusy)

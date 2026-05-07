@@ -1,5 +1,5 @@
 /*
-Copyright © 2025 Acronis International GmbH.
+Copyright © 2025-2026 Acronis International GmbH.
 
 Released under MIT license.
 */
@@ -22,7 +22,10 @@ import (
 )
 
 func main() {
-	logger, loggerClose := log.NewLogger(&log.Config{Output: log.OutputStderr, Level: log.LevelInfo})
+	logger, loggerClose := log.NewLogger(&log.Config{
+		Output: log.OutputStderr,
+		Level:  log.LevelInfo,
+	})
 	defer loggerClose()
 
 	// Create a Prometheus metrics collector.
@@ -45,11 +48,13 @@ func main() {
 	txRunner := dbrutil.NewTxRunner(conn, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, nil)
 
 	// Execute function in a transaction.
-	// The transaction will be automatically committed if the function returns nil, otherwise it will be rolled back.
+	// The transaction will be automatically committed if the function returns nil, otherwise it
+	// will be rolled back.
 	if dbErr := txRunner.DoInTx(context.Background(), func(tx dbr.SessionRunner) error {
 		var result int
 		return tx.Select("SLEEP(1)").
-			Comment(annotateQuery("long_operation")). // Annotate the query for Prometheus metrics and slow query log.
+			// Annotate the query for Prometheus metrics and slow query log.
+			Comment(annotateQuery("long_operation")).
 			LoadOne(&result)
 	}); dbErr != nil {
 		stdlog.Fatal(dbErr)
@@ -83,8 +88,10 @@ func openDB(eventReceiver dbr.EventReceiver) (*dbr.Connection, error) {
 		},
 	}
 
-	// Open database with instrumentation based on the provided event receiver (see github.com/gocraft/dbr doc for details).
-	// Opening includes configuring the max open/idle connections and their lifetime and pinging the database.
+	// Open database with instrumentation based on the provided event receiver
+	// (see github.com/gocraft/dbr doc for details).
+	// Opening includes configuring the max open/idle connections and their lifetime and
+	// pinging the database.
 	conn, err := dbrutil.Open(cfg, true, eventReceiver)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
