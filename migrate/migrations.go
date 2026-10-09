@@ -8,6 +8,7 @@ Released under MIT license.
 package migrate
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -17,7 +18,6 @@ import (
 	"time"
 
 	"github.com/acronis/go-appkit/log"
-	migrate "github.com/rubenv/sql-migrate"
 
 	"github.com/acronis/go-dbkit"
 )
@@ -48,10 +48,19 @@ type Migration interface {
 	DownFn() func(tx *sql.Tx) error // Not supported yet.
 }
 
+// RawMigration is a migration described by plain SQL statements with per-direction transaction control.
+type RawMigration struct {
+	ID                     string
+	UpSQL                  []string
+	DownSQL                []string
+	DisableTransactionUp   bool // Run up statements outside a transaction.
+	DisableTransactionDown bool // Run down statements outside a transaction.
+}
+
 // RawMigrator is an interface that allows to overwrite default generate mechanism for full control on migrations.
-// Uses sql-migrate migration structure.
+// If RawMigration returns nil, the default mechanism is used.
 type RawMigrator interface {
-	RawMigration(m Migration) (*migrate.Migration, error)
+	RawMigration(m Migration) (*RawMigration, error)
 }
 
 // TxDisabler is an interface for Migration for controlling transaction
@@ -133,7 +142,7 @@ func (m *CustomMigration) DownFn() func(tx *sql.Tx) error {
 type MigrationsManager struct {
 	db      *sql.DB
 	Dialect dbkit.Dialect
-	migSet  migrate.MigrationSet
+	table   string
 	logger  log.FieldLogger
 }
 
@@ -144,8 +153,7 @@ type MigrationsManagerOpts struct {
 
 // NewMigrationsManager creates a new MigrationsManager.
 func NewMigrationsManager(dbConn *sql.DB, dialect dbkit.Dialect, logger log.FieldLogger) (*MigrationsManager, error) {
-	migSet := migrate.MigrationSet{TableName: MigrationsTableName}
-	return &MigrationsManager{dbConn, normalizeDialect(dialect), migSet, logger}, nil
+	return &MigrationsManager{dbConn, normalizeDialect(dialect), MigrationsTableName, logger}, nil
 }
 
 // NewMigrationsManagerWithOpts creates a new MigrationsManager with custom options
@@ -159,11 +167,10 @@ func NewMigrationsManagerWithOpts(
 	if tableName == "" {
 		tableName = MigrationsTableName
 	}
-	migSet := migrate.MigrationSet{TableName: tableName}
-	return &MigrationsManager{dbConn, normalizeDialect(dialect), migSet, logger}, nil
+	return &MigrationsManager{dbConn, normalizeDialect(dialect), tableName, logger}, nil
 }
 
-// TODO: normalizeDialect sets standard lib/pq driver for pgx dialect because pgx isn't supported by sql-migrate yet.
+// normalizeDialect maps the pgx dialect to the postgres one since they share SQL syntax.
 func normalizeDialect(dialect dbkit.Dialect) dbkit.Dialect {
 	if dialect == dbkit.DialectPgx {
 		return dbkit.DialectPostgres
@@ -176,10 +183,10 @@ func (mm *MigrationsManager) Run(migrations []Migration, direction MigrationsDir
 	return mm.RunLimit(migrations, direction, MigrationsNoLimit)
 }
 
-// convertMigration converts migration to internal sql-migrate format.
+// convertMigration converts migration to the internal representation.
 // If migration implements RawMigrator interface, then RawMigration function is used.
 // If migration implements TxDisabler interface, then it may be not in transaction.
-func convertMigration(m Migration) (*migrate.Migration, error) {
+func convertMigration(m Migration) (*RawMigration, error) {
 	if migrator, ok := m.(RawMigrator); ok {
 		raw, err := migrator.RawMigration(m)
 		if err != nil {
@@ -205,10 +212,10 @@ func convertMigration(m Migration) (*migrate.Migration, error) {
 	if disableTransactor, ok := m.(TxDisabler); ok {
 		disableTx = disableTransactor.DisableTx()
 	}
-	return &migrate.Migration{
-		Id:                     m.ID(),
-		Up:                     m.UpSQL(),
-		Down:                   m.DownSQL(),
+	return &RawMigration{
+		ID:                     m.ID(),
+		UpSQL:                  m.UpSQL(),
+		DownSQL:                m.DownSQL(),
 		DisableTransactionUp:   disableTx,
 		DisableTransactionDown: disableTx,
 	}, nil
@@ -216,7 +223,7 @@ func convertMigration(m Migration) (*migrate.Migration, error) {
 
 // RunLimit runs at most `limit` migrations. Pass 0 (or MigrationsNoLimit const) for no limit (or use Run).
 func (mm *MigrationsManager) RunLimit(migrations []Migration, direction MigrationsDirection, limit int) error {
-	convertedMigrationList := make([]*migrate.Migration, 0, len(migrations))
+	convertedMigrationList := make([]*RawMigration, 0, len(migrations))
 	for i, m := range migrations {
 		if m.ID() == "" {
 			return fmt.Errorf("migration #%d has empty ID", i+1)
@@ -229,19 +236,11 @@ func (mm *MigrationsManager) RunLimit(migrations []Migration, direction Migratio
 		convertedMigrationList = append(convertedMigrationList, convertedMigration)
 	}
 
-	source := &migrate.MemoryMigrationSource{Migrations: convertedMigrationList}
-
-	var dir migrate.MigrationDirection
-	switch direction {
-	case MigrationsDirectionUp:
-		dir = migrate.Up
-	case MigrationsDirectionDown:
-		dir = migrate.Down
-	default:
+	if direction != MigrationsDirectionUp && direction != MigrationsDirectionDown {
 		return fmt.Errorf("unknown direction %q", direction)
 	}
 
-	n, err := mm.migSet.ExecMax(mm.db, string(mm.Dialect), source, dir, limit)
+	n, err := mm.run(convertedMigrationList, direction, limit)
 
 	logger := mm.logger.With(log.String("direction", string(direction)), log.Int("applied", n))
 	if err != nil {
@@ -252,17 +251,52 @@ func (mm *MigrationsManager) RunLimit(migrations []Migration, direction Migratio
 	return nil
 }
 
+func (mm *MigrationsManager) run(migrations []*RawMigration, direction MigrationsDirection, limit int) (int, error) {
+	ctx := context.Background()
+	store, err := newMetadataStore(mm.db, mm.Dialect, mm.table)
+	if err != nil {
+		return 0, err
+	}
+	if err = store.ensureTable(ctx); err != nil {
+		return 0, err
+	}
+	records, err := store.list(ctx)
+	if err != nil {
+		return 0, err
+	}
+	appliedIDs := make([]string, 0, len(records))
+	for _, rec := range records {
+		appliedIDs = append(appliedIDs, rec.ID)
+	}
+	plan, err := planMigrations(migrations, appliedIDs, direction, limit)
+	if err != nil {
+		return 0, err
+	}
+	return executePlan(ctx, mm.db, store, plan, direction)
+}
+
 // Status returns the current migration status.
 func (mm *MigrationsManager) Status() (MigrationStatus, error) {
 	var migStatus MigrationStatus
 
-	appliedMigRecords, err := mm.migSet.GetMigrationRecords(mm.db, string(mm.Dialect))
+	ctx := context.Background()
+	store, err := newMetadataStore(mm.db, mm.Dialect, mm.table)
 	if err != nil {
+		return migStatus, fmt.Errorf("get applied migrations: %w", err)
+	}
+	if err = store.ensureTable(ctx); err != nil {
+		return migStatus, fmt.Errorf("get applied migrations: %w", err)
+	}
+	appliedMigRecords, err := store.list(ctx)
+	if err != nil {
+		if mm.Dialect == dbkit.DialectMySQL {
+			err = fmt.Errorf("%w (make sure the parseTime=true option is set in the connection DSN)", err)
+		}
 		return migStatus, fmt.Errorf("get applied migrations: %w", err)
 	}
 	migStatus.AppliedMigrations = make([]AppliedMigration, 0, len(appliedMigRecords))
 	for _, migRec := range appliedMigRecords {
-		migStatus.AppliedMigrations = append(migStatus.AppliedMigrations, AppliedMigration{ID: migRec.Id, AppliedAt: migRec.AppliedAt})
+		migStatus.AppliedMigrations = append(migStatus.AppliedMigrations, AppliedMigration{ID: migRec.ID, AppliedAt: migRec.AppliedAt})
 	}
 
 	return migStatus, nil

@@ -2,7 +2,7 @@
 
 [![GoDoc Widget]][GoDoc]
 
-`migrate` package provides functionality for applying database migrations in your Go applications. It leverages [github.com/rubenv/sql-migrate](https://github.com/rubenv/sql-migrate) under the hood, ensuring a reliable and consistent approach to managing database schema changes.
+`migrate` package provides functionality for applying database migrations in your Go applications. It uses a built-in engine on top of `database/sql` with no external migration library. Supported dialects: SQLite, PostgreSQL (`postgres`, `pgx`), MySQL/MariaDB, MSSQL.
 
 It offers two primary approaches for defining your migrations:
 - **Embedded SQL Migrations**: Store your migrations as plain SQL files (with separate `.up.sql` and `.down.sql` files) and embed them into your Go binary using Go's built-in embed package. This approach is straightforward and keeps your SQL scripts separate from your application code.
@@ -284,6 +284,47 @@ func NewMigration0002CreateNotesTable(dialect dbkit.Dialect) *migrate.CustomMigr
 	return migrate.NewCustomMigration("0002_create_notes_table", upSQL, downSQL, nil, nil)
 }
 ```
+
+## Engine behavior
+
+- Applied migrations are stored in the `migrations` table (configurable with `MigrationsManagerOpts.TableName`) with columns `id` (primary key) and `applied_at` (nullable). Tables created by earlier versions are used as is; applied migrations are not replayed.
+- Migrations are ordered by the numeric ID prefix, then lexicographically. IDs with a numeric prefix go before others.
+- Each migration and its metadata update run in one transaction. A migration implementing `TxDisabler` runs outside a transaction; its metadata is recorded only after all statements succeed.
+- Migrations absent from the history but ordered before the last applied one are applied first, in both directions, and are not counted in `limit`.
+- A migration recorded in the database but missing from the passed list fails the run.
+- Statements are executed one by one; a trailing line break, space, or `;` is trimmed.
+- MySQL: `parseTime=true` is required in the DSN for `Status`.
+- `UpFn` / `DownFn` are not supported.
+
+### Raw migrations
+
+A migration implementing `RawMigrator` replaces the default conversion. Returning `nil` falls back to `UpSQL`/`DownSQL`.
+
+```go
+type Migration0003 struct {
+	*migrate.NullMigration
+}
+
+func (m *Migration0003) ID() string { return "0003_seed_users" }
+
+func (m *Migration0003) RawMigration(self migrate.Migration) (*migrate.RawMigration, error) {
+	return &migrate.RawMigration{
+		ID:                     self.ID(),
+		UpSQL:                  []string{"INSERT INTO users (name) VALUES ('admin')"},
+		DownSQL:                []string{"DELETE FROM users WHERE name = 'admin'"},
+		DisableTransactionUp:   false,
+		DisableTransactionDown: false,
+	}, nil
+}
+```
+
+### Differences from the sql-migrate based implementation
+
+- `RawMigrator.RawMigration` returns `*migrate.RawMigration` instead of `*sql-migrate.Migration`. Replace `migrate.ParseMigration` (`-- +migrate Up/Down` comments) with explicit `UpSQL`/`DownSQL`; `+migrate NoTransaction` maps to `DisableTransactionUp/Down`.
+- The `parseTime` check on MySQL is no longer done on every run, only `Status` needs it.
+- New metadata tables use `VARCHAR(255)` / `DATETIME` (`TIMESTAMP WITH TIME ZONE` on PostgreSQL) without explicit engine and charset on MySQL.
+- A `NULL` `applied_at` is returned as zero time instead of failing.
+- An unknown direction error reports the direction value.
 
 ## License
 
