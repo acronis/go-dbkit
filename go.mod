@@ -16,7 +16,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.37
 	github.com/microsoft/go-mssqldb v1.9.7
 	github.com/prometheus/client_golang v1.24.1
-	github.com/rubenv/sql-migrate v1.0.0
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
@@ -89,7 +88,6 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	github.com/ziutek/mymysql v1.5.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect
@@ -101,12 +99,5 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/gorp.v1 v1.7.2 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )
-
-// Replace old monolithic genproto with a version where googleapis/rpc/status is split into a separate module.
-// Required because rubenv/sql-migrate v1.0.0 -> gopkg.in/gorp.v1 -> ziutek/mymysql pulls in
-// google.golang.org/genproto v0.0.0-20180817151627-c66870c02cf8 which conflicts with the modern
-// google.golang.org/genproto/googleapis/rpc split module used by grpc and otel dependencies.
-replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20250102185135-69823020774d
