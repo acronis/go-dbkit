@@ -39,7 +39,7 @@ func Open(cfg *dbkit.Config, ping bool, eventReceiver dbr.EventReceiver) (*dbr.C
 	return conn, nil
 }
 
-// TxCommitError is a error that may occur when committing transaction is failed.
+// TxCommitError is an error that may occur when committing transaction is failed.
 type TxCommitError struct {
 	Inner error
 }
@@ -69,7 +69,7 @@ func (e *TxRollbackError) Error() string {
 	return fmt.Sprintf("error while transaction rollback: %s", e.Inner)
 }
 
-// TxBeginError is a error that may occur when begging transaction is failed.
+// TxBeginError is an error that may occur when beginning transaction is failed.
 type TxBeginError struct {
 	Inner error
 }
@@ -81,7 +81,7 @@ func (e *TxBeginError) Unwrap() error {
 
 // Error returns a string representation of TxBeginError.
 func (e *TxBeginError) Error() string {
-	return fmt.Sprintf("error while begging transaction: %s", e.Inner)
+	return fmt.Sprintf("error while beginning transaction: %s", e.Inner)
 }
 
 // TxRunner can begin a new transaction and provides the ability to execute code inside already started one.
@@ -91,7 +91,7 @@ type TxRunner interface {
 	DoInTx(ctx context.Context, fn func(runner dbr.SessionRunner) error) error
 }
 
-// TxSession contains Session form dbr query builder (represents a business unit of execution (e.g. a web request or some worker's job))
+// TxSession contains Session from dbr query builder (represents a business unit of execution (e.g. a web request or some worker's job))
 // and options for starting transactions.
 type TxSession struct {
 	*dbr.Session

@@ -32,7 +32,7 @@ type QueryMetricsEventReceiver struct {
 	annotationModifier func(string) string
 }
 
-// NewQueryMetricsEventReceiverWithOpts creates a new QueryMetricsEventReceiver with additinal options.
+// NewQueryMetricsEventReceiverWithOpts creates a new QueryMetricsEventReceiver with additional options.
 func NewQueryMetricsEventReceiverWithOpts(
 	mc MetricsCollector, options QueryMetricsEventReceiverOpts,
 ) *QueryMetricsEventReceiver {
