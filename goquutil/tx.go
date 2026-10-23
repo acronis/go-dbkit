@@ -163,7 +163,7 @@ func (d *DB) WithTxOpts(txOpts *sql.TxOptions) *DB {
 	return d
 }
 
-// WithLogging enables logging of time consumed on openning/getting DB connection from pool
+// WithLogging enables logging of time consumed on opening/getting DB connection from pool
 func (d *DB) WithLogging(logger golibslog.FieldLogger, loggingCtx string, loggingTimeThresholdBeginTx time.Duration) *DB {
 	d.logger = logger
 	d.loggingCtx = loggingCtx
