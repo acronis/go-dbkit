@@ -96,6 +96,7 @@ func NewConfig(supportedDialects []Dialect, options ...ConfigOption) *Config {
 
 // NewConfigWithKeyPrefix creates a new instance of the Config with a key prefix.
 // This prefix will be used by config.Loader.
+//
 // Deprecated: use NewConfig with WithKeyPrefix instead.
 func NewConfigWithKeyPrefix(keyPrefix string, supportedDialects []Dialect) *Config {
 	if keyPrefix != "" {
@@ -252,15 +253,15 @@ func (c *Config) TxIsolationLevel() sql.IsolationLevel {
 func (c *Config) DriverNameAndDSN() (driverName, dsn string) {
 	switch c.Dialect {
 	case DialectMySQL:
-		return "mysql", MakeMySQLDSN(&c.MySQL)
+		return string(DialectMySQL), MakeMySQLDSN(&c.MySQL)
 	case DialectSQLite:
-		return "sqlite3", MakeSQLiteDSN(&c.SQLite)
+		return string(DialectSQLite), MakeSQLiteDSN(&c.SQLite)
 	case DialectPostgres:
-		return "postgres", MakePostgresDSN(&c.Postgres)
+		return string(DialectPostgres), MakePostgresDSN(&c.Postgres)
 	case DialectPgx:
-		return "pgx", MakePostgresDSN(&c.Postgres)
+		return string(DialectPgx), MakePostgresDSN(&c.Postgres)
 	case DialectMSSQL:
-		return "mssql", MakeMSSQLDSN(&c.MSSQL)
+		return string(DialectMSSQL), MakeMSSQLDSN(&c.MSSQL)
 	}
 	return "", ""
 }

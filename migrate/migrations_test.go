@@ -203,6 +203,12 @@ func TestMigrationsManager_RunLimit(t *testing.T) {
 	requireMigrationsApplied(t, dbConn, true, 0, 0)
 }
 
+func TestMigrationsManager_RunLimit_InvalidDirection(t *testing.T) {
+	manager := &MigrationsManager{}
+	err := manager.RunLimit(nil, MigrationsDirection("invalid"), MigrationsNoLimit)
+	require.EqualError(t, err, `unknown direction "invalid"`)
+}
+
 func TestMigrationsManager_Status(t *testing.T) {
 	dbConn, err := sql.Open("sqlite3", "file::memory:?cache=shared")
 	require.NoError(t, err)

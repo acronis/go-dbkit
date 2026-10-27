@@ -60,7 +60,7 @@ func MakePostgresDSN(cfg *PostgresConfig) string {
 		sslMode = PostgresDefaultSSLMode
 	}
 	connURI := url.URL{
-		Scheme:   "postgres",
+		Scheme:   string(DialectPostgres),
 		User:     url.UserPassword(cfg.User, cfg.Password),
 		Host:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Path:     cfg.Database,

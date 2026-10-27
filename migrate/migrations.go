@@ -238,7 +238,7 @@ func (mm *MigrationsManager) RunLimit(migrations []Migration, direction Migratio
 	case MigrationsDirectionDown:
 		dir = migrate.Down
 	default:
-		return fmt.Errorf("unknown direction %q", dir)
+		return fmt.Errorf("unknown direction %q", direction)
 	}
 
 	n, err := mm.migSet.ExecMax(mm.db, string(mm.Dialect), source, dir, limit)
