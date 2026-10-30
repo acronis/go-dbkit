@@ -7,7 +7,6 @@ Released under MIT license.
 package migrate
 
 import (
-	"bytes"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/acronis/go-appkit/log/logtest"
 	_ "github.com/mattn/go-sqlite3"
-	migrate "github.com/rubenv/sql-migrate"
 	"github.com/stretchr/testify/require"
 
 	"github.com/acronis/go-dbkit"
@@ -90,20 +88,21 @@ func newTestMigration00003RawMigration() *testMigration00003RawMigration {
 	return &testMigration00003RawMigration{}
 }
 
-// nolint: lll
-func (m *testMigration00003RawMigration) RawMigration(self Migration) (*migrate.Migration, error) {
+func (m *testMigration00003RawMigration) RawMigration(self Migration) (*RawMigration, error) {
 	if m.MakeError {
 		return nil, fmt.Errorf("fake fatal error")
 	}
-	rawSQL := `
--- +migrate Up
-INSERT INTO users(name) VALUES("AlbertRaw"), ("BobRaw"), ("JohnRaw"), ("SamRaw"), ("SamRaw");
-INSERT INTO notes(content, user_id) VALUES ("raw-first-note", 6), ("raw-second-note", 7);
--- +migrate Down
-DELETE FROM notes WHERE content LIKE 'raw%';
-DELETE FROM users WHERE name LIKE '%Raw';
-`
-	return migrate.ParseMigration(self.ID(), bytes.NewReader([]byte(rawSQL)))
+	return &RawMigration{
+		ID: self.ID(),
+		UpSQL: []string{
+			`INSERT INTO users(name) VALUES("AlbertRaw"), ("BobRaw"), ("JohnRaw"), ("SamRaw"), ("SamRaw");`,
+			`INSERT INTO notes(content, user_id) VALUES ("raw-first-note", 6), ("raw-second-note", 7);`,
+		},
+		DownSQL: []string{
+			`DELETE FROM notes WHERE content LIKE 'raw%';`,
+			`DELETE FROM users WHERE name LIKE '%Raw';`,
+		},
+	}, nil
 }
 
 type testMigration00004NoTransaction struct {
@@ -244,7 +243,7 @@ func TestCreationMigrationManagerWithOpts(t *testing.T) {
 	migMngr, err := NewMigrationsManagerWithOpts(dbConn, dbkit.DialectSQLite, logtest.NewLogger(),
 		MigrationsManagerOpts{TableName: tableName})
 	require.NoError(t, err)
-	require.Equal(t, tableName, migMngr.migSet.TableName)
+	require.Equal(t, tableName, migMngr.table)
 
 	migrations := []Migration{newTestMigration00001CreateTables(), newTestMigration00002SeedTabled()}
 	var rowsNum int
