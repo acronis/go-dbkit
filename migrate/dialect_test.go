@@ -35,8 +35,12 @@ func TestSQLDialect_createTable(t *testing.T) {
 		wantArgs []any
 	}{
 		{sqliteDialect, `CREATE TABLE IF NOT EXISTS "t" (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME)`, nil},
-		{postgresDialect, `CREATE TABLE IF NOT EXISTS "t" (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at TIMESTAMP WITH TIME ZONE)`, nil},
-		{mysqlDialect, "CREATE TABLE IF NOT EXISTS `t` (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME)", nil},
+		{postgresDialect, `CREATE TABLE IF NOT EXISTS "t" (id TEXT NOT NULL PRIMARY KEY, applied_at TIMESTAMP WITH TIME ZONE)`, nil},
+		{
+			mysqlDialect,
+			"CREATE TABLE IF NOT EXISTS `t` (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3",
+			nil,
+		},
 		{
 			mssqlDialect,
 			"IF OBJECT_ID(@p1, N'U') IS NULL CREATE TABLE [t] (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME)",

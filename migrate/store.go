@@ -28,9 +28,11 @@ type metadataRecord struct {
 
 // metadataStore reads and writes applied migrations in the metadata table.
 type metadataStore struct {
-	db      *sql.DB
-	dialect *sqlDialect
-	table   string // Quoted table name.
+	db          *sql.DB
+	dialect     *sqlDialect
+	dialectName dbkit.Dialect
+	name        string // Table name as configured.
+	table       string // Quoted table name.
 }
 
 func newMetadataStore(db *sql.DB, dialect dbkit.Dialect, tableName string) (*metadataStore, error) {
@@ -38,7 +40,29 @@ func newMetadataStore(db *sql.DB, dialect dbkit.Dialect, tableName string) (*met
 	if err != nil {
 		return nil, err
 	}
-	return &metadataStore{db: db, dialect: d, table: d.quote(tableName)}, nil
+	return &metadataStore{db: db, dialect: d, dialectName: dialect, name: tableName, table: d.quote(tableName)}, nil
+}
+
+// prepare creates the metadata table if needed and checks that an existing table is usable. Callers read the history
+// with list afterwards and run no migration SQL before. Validation is not cached: every call inspects the current schema.
+func (s *metadataStore) prepare(ctx context.Context) error {
+	if err := s.ensureTable(ctx); err != nil {
+		return err
+	}
+	return s.validateSchema(ctx)
+}
+
+// validateSchema checks that the manager can insert, delete and read history rows in the table.
+// It reads catalogs only and never changes the table.
+func (s *metadataStore) validateSchema(ctx context.Context) error {
+	schema, err := s.dialect.inspect(ctx, s.db, s.name)
+	if err != nil {
+		return fmt.Errorf("inspect migration history table %q: %w", s.name, err)
+	}
+	if reasons := checkMetadataSchema(schema); len(reasons) > 0 {
+		return &incompatibleSchemaError{table: s.name, dialect: s.dialectName, reasons: reasons}
+	}
+	return nil
 }
 
 // ensureTable creates the metadata table if it doesn't exist.

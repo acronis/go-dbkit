@@ -1,0 +1,244 @@
+// Command gen applies migrations with the sql-migrate based go-dbkit MigrationsManager
+// (commit d3d5fd68712baf09e6ca498f7250751234aca9f1) and prints the resulting history.
+// With -export-mssql it also writes an SQL export built from SQL Server catalog metadata and rows.
+//
+// It is built in a temporary module that replaces github.com/acronis/go-dbkit with the old checkout.
+package main
+
+import (
+	"database/sql"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/acronis/go-appkit/log"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/microsoft/go-mssqldb"
+
+	"github.com/acronis/go-dbkit"
+	"github.com/acronis/go-dbkit/migrate"
+)
+
+// LongID is the applied migration ID longer than 255 characters, used on PostgreSQL only (id is TEXT there).
+var LongID = "4_" + strings.Repeat("long_migration_id_", 17) // 2 + 306 characters.
+
+func migrations(dialect dbkit.Dialect) []migrate.Migration {
+	str, unicodeName := "VARCHAR(100)", "'Zoë 東京'"
+	if dialect == dbkit.DialectMSSQL {
+		str, unicodeName = "NVARCHAR(100)", "N'Zoë 東京'"
+	}
+	migs := []migrate.Migration{
+		migrate.NewCustomMigration("1_create_users",
+			[]string{"CREATE TABLE legacy_users (id INT NOT NULL PRIMARY KEY, name " + str + " NOT NULL)"},
+			[]string{"DROP TABLE legacy_users"}, nil, nil),
+		migrate.NewCustomMigration("2_seed_users",
+			[]string{
+				"INSERT INTO legacy_users (id, name) VALUES (1, 'alice')",
+				"INSERT INTO legacy_users (id, name) VALUES (2, " + unicodeName + ")",
+				"INSERT INTO legacy_users (id, name) VALUES (3, 'untouched')",
+			},
+			[]string{"DELETE FROM legacy_users WHERE id IN (1, 2, 3)"}, nil, nil),
+		migrate.NewCustomMigration("3_create_audit",
+			[]string{
+				"CREATE TABLE legacy_audit (id INT NOT NULL PRIMARY KEY, note " + str + " NOT NULL)",
+				"INSERT INTO legacy_audit (id, note) VALUES (1, 'created by 3')",
+			},
+			[]string{"DROP TABLE legacy_audit"}, nil, nil),
+	}
+	if dialect == dbkit.DialectPostgres {
+		migs = append(migs, migrate.NewCustomMigration(LongID,
+			[]string{"INSERT INTO legacy_audit (id, note) VALUES (4, 'long id')"},
+			[]string{"DELETE FROM legacy_audit WHERE id = 4"}, nil, nil))
+	}
+	return migs
+}
+
+func main() {
+	dialect := flag.String("dialect", "", "dbkit dialect: sqlite3, postgres, mysql, mssql")
+	driver := flag.String("driver", "", "database/sql driver name")
+	dsn := flag.String("dsn", "", "data source name")
+	exportMSSQL := flag.String("export-mssql", "", "write an SQL Server export of the fixture tables to this file")
+	flag.Parse()
+
+	db, err := sql.Open(*driver, *dsn)
+	check(err)
+	defer db.Close()
+	check(db.Ping())
+
+	d := dbkit.Dialect(*dialect)
+	mm, err := migrate.NewMigrationsManager(db, d, log.NewDisabledLogger())
+	check(err)
+	migs := migrations(d)
+	for range migs {
+		check(mm.RunLimit(migs, migrate.MigrationsDirectionUp, 1))
+		time.Sleep(1100 * time.Millisecond) // Distinct timestamps at second precision.
+	}
+
+	status, err := mm.Status()
+	check(err)
+	for _, m := range status.AppliedMigrations {
+		fmt.Printf("%s\t%s\n", m.ID, m.AppliedAt.UTC().Format(time.RFC3339Nano))
+	}
+
+	if *exportMSSQL != "" {
+		f, err := os.Create(*exportMSSQL)
+		check(err)
+		check(exportSQLServer(db, f, []string{"migrations", "legacy_users", "legacy_audit"}))
+		check(f.Close())
+	}
+}
+
+// exportSQLServer writes CREATE TABLE statements built from sys catalog metadata and INSERT statements for all rows.
+// Batches are separated by GO lines.
+func exportSQLServer(db *sql.DB, f *os.File, tables []string) error {
+	fmt.Fprintf(f, "-- SQL Server export of go-dbkit fixture tables, generated from sys catalog metadata and rows.\n")
+	for _, table := range tables {
+		cols, err := sqlServerColumns(db, table)
+		if err != nil {
+			return err
+		}
+		pk, err := sqlServerPrimaryKey(db, table)
+		if err != nil {
+			return err
+		}
+		defs := make([]string, 0, len(cols)+1)
+		for _, c := range cols {
+			def := "[" + c.name + "] " + c.typeSQL()
+			if c.nullable {
+				def += " NULL"
+			} else {
+				def += " NOT NULL"
+			}
+			defs = append(defs, def)
+		}
+		if len(pk) > 0 {
+			defs = append(defs, "PRIMARY KEY ("+"["+strings.Join(pk, "], [")+"]"+")")
+		}
+		fmt.Fprintf(f, "CREATE TABLE [dbo].[%s] (\n    %s\n);\nGO\n", table, strings.Join(defs, ",\n    "))
+		if err = sqlServerRows(db, f, table, cols); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type sqlServerColumn struct {
+	name      string
+	typeName  string
+	maxLength int // Bytes; -1 for MAX.
+	nullable  bool
+}
+
+func (c sqlServerColumn) typeSQL() string {
+	switch c.typeName {
+	case "varchar", "char", "varbinary", "binary":
+		if c.maxLength < 0 {
+			return c.typeName + "(MAX)"
+		}
+		return fmt.Sprintf("%s(%d)", c.typeName, c.maxLength)
+	case "nvarchar", "nchar":
+		if c.maxLength < 0 {
+			return c.typeName + "(MAX)"
+		}
+		return fmt.Sprintf("%s(%d)", c.typeName, c.maxLength/2)
+	case "int", "bigint", "datetime", "datetime2", "datetimeoffset":
+		return c.typeName
+	default:
+		panic("unsupported SQL Server type " + c.typeName)
+	}
+}
+
+func sqlServerColumns(db *sql.DB, table string) ([]sqlServerColumn, error) {
+	rows, err := db.Query(`SELECT c.name, t.name, c.max_length, c.is_nullable
+FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
+WHERE c.object_id = OBJECT_ID(?) ORDER BY c.column_id`, "dbo."+table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []sqlServerColumn
+	for rows.Next() {
+		var c sqlServerColumn
+		if err = rows.Scan(&c.name, &c.typeName, &c.maxLength, &c.nullable); err != nil {
+			return nil, err
+		}
+		cols = append(cols, c)
+	}
+	if len(cols) == 0 {
+		return nil, fmt.Errorf("table %s not found", table)
+	}
+	return cols, rows.Err()
+}
+
+func sqlServerPrimaryKey(db *sql.DB, table string) ([]string, error) {
+	rows, err := db.Query(`SELECT c.name
+FROM sys.indexes i
+JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+WHERE i.object_id = OBJECT_ID(?) AND i.is_primary_key = 1 ORDER BY ic.key_ordinal`, "dbo."+table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var name string
+		if err = rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		cols = append(cols, name)
+	}
+	return cols, rows.Err()
+}
+
+// sqlServerRows writes one INSERT per row. Strings are written as N'' literals with doubled quotes; datetime values as
+// ISO 8601 literals with milliseconds, which convert back to the same DATETIME value (1/300 s ticks).
+func sqlServerRows(db *sql.DB, f *os.File, table string, cols []sqlServerColumn) error {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = "[" + c.name + "]"
+	}
+	rows, err := db.Query(fmt.Sprintf("SELECT %s FROM [dbo].[%s] ORDER BY 1", strings.Join(names, ", "), table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err = rows.Scan(ptrs...); err != nil {
+			return err
+		}
+		lits := make([]string, len(cols))
+		for i, v := range vals {
+			switch v := v.(type) {
+			case nil:
+				lits[i] = "NULL"
+			case int64:
+				lits[i] = fmt.Sprint(v)
+			case string:
+				lits[i] = "N'" + strings.ReplaceAll(v, "'", "''") + "'"
+			case time.Time:
+				lits[i] = "CONVERT(DATETIME, '" + v.Format("2006-01-02T15:04:05.000") + "', 126)"
+			default:
+				return fmt.Errorf("unsupported value %T in %s", v, table)
+			}
+		}
+		fmt.Fprintf(f, "INSERT INTO [dbo].[%s] (%s) VALUES (%s);\nGO\n", table, strings.Join(names, ", "), strings.Join(lits, ", "))
+	}
+	return rows.Err()
+}
+
+func check(err error) {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
