@@ -1,5 +1,5 @@
 /*
-Copyright © 2024 Acronis International GmbH.
+Copyright © 2026 Acronis International GmbH.
 
 Released under MIT license.
 */
