@@ -39,12 +39,12 @@ import (
 func TestMigrationsManagerIntegration(t *gotesting.T) {
 	for _, b := range integrationBackends {
 		t.Run(b.name, func(t *gotesting.T) {
-			openDB := b.start(t)
-			for _, sc := range integrationScenarios() {
+			newConn := b.start(t)
+			for _, sc := range integrationScenarios(b) {
 				t.Run(sc.name, func(t *gotesting.T) {
 					for _, mt := range []struct{ name, table string }{{"DefaultTable", ""}, {"CustomTable", "custom"}} {
 						t.Run(mt.name, func(t *gotesting.T) {
-							sc.run(t, newIntegrationEnv(t, b, openDB(t), mt.table))
+							sc.run(t, newIntegrationEnv(t, b, newConn(t), mt.table))
 						})
 					}
 				})
@@ -67,51 +67,57 @@ type integrationBackend struct {
 	// transactionalDDL is false when DDL commits the current transaction implicitly (MySQL, MariaDB).
 	transactionalDDL bool
 	placeholder      func(n int) string
-	// start prepares the backend and returns a function opening a database for a single scenario.
-	start func(t *gotesting.T) func(t *gotesting.T) *sql.DB
+	timestampType    string // Column type for applied_at in metadata tables created by tests.
+	// start prepares the backend and returns a function providing connection parameters for a single scenario.
+	start func(t *gotesting.T) func(t *gotesting.T) scenarioConn
+}
+
+// scenarioConn holds database connection parameters of one scenario.
+type scenarioConn struct {
+	driverName string
+	dsn        string
+	sqliteFile string // SQLite only: the database file, which the scenario may replace before reopening.
 }
 
 var integrationBackends = []integrationBackend{
 	{
-		name: "SQLite", dialect: dbkit.DialectSQLite, transactionalDDL: true,
+		name: "SQLite", dialect: dbkit.DialectSQLite, transactionalDDL: true, timestampType: "DATETIME",
 		placeholder: func(int) string { return "?" }, start: startSQLite,
 	},
 	{
-		name: "MySQL", dialect: dbkit.DialectMySQL, transactionalDDL: false,
+		name: "MySQL", dialect: dbkit.DialectMySQL, transactionalDDL: false, timestampType: "DATETIME",
 		placeholder: func(int) string { return "?" }, start: startContainer(string(dbkit.DialectMySQL)),
 	},
 	{
-		name: "MariaDB", dialect: dbkit.DialectMySQL, transactionalDDL: false,
+		name: "MariaDB", dialect: dbkit.DialectMySQL, transactionalDDL: false, timestampType: "DATETIME",
 		placeholder: func(int) string { return "?" }, start: startContainer(testing.DialectMariaDB),
 	},
 	{
-		name: "Postgres", dialect: dbkit.DialectPostgres, transactionalDDL: true,
+		name: "Postgres", dialect: dbkit.DialectPostgres, transactionalDDL: true, timestampType: "TIMESTAMP WITH TIME ZONE",
 		placeholder: func(n int) string { return "$" + strconv.Itoa(n) }, start: startContainer(string(dbkit.DialectPostgres)),
 	},
 	{
-		name: "Pgx", dialect: dbkit.DialectPgx, transactionalDDL: true,
+		name: "Pgx", dialect: dbkit.DialectPgx, transactionalDDL: true, timestampType: "TIMESTAMP WITH TIME ZONE",
 		placeholder: func(n int) string { return "$" + strconv.Itoa(n) }, start: startContainer(string(dbkit.DialectPgx)),
 	},
 	{
-		name: "MSSQL", dialect: dbkit.DialectMSSQL, transactionalDDL: true,
+		name: "MSSQL", dialect: dbkit.DialectMSSQL, transactionalDDL: true, timestampType: "DATETIME",
 		placeholder: func(n int) string { return "@p" + strconv.Itoa(n) }, start: startContainer(string(dbkit.DialectMSSQL)),
 	},
 }
 
 // startSQLite gives every scenario its own database file. Foreign keys are enabled for the metadata write failure scenario.
-func startSQLite(*gotesting.T) func(t *gotesting.T) *sql.DB {
-	return func(t *gotesting.T) *sql.DB {
-		db, err := sql.Open("sqlite3", "file:"+filepath.Join(t.TempDir(), "test.db")+"?_foreign_keys=on")
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, db.Close()) })
-		return db
+func startSQLite(*gotesting.T) func(t *gotesting.T) scenarioConn {
+	return func(t *gotesting.T) scenarioConn {
+		file := filepath.Join(t.TempDir(), "test.db")
+		return scenarioConn{driverName: "sqlite3", dsn: "file:" + file + "?_foreign_keys=on", sqliteFile: file}
 	}
 }
 
 // startContainer starts one container per backend group. Scenarios share it, isolate themselves by table names and
 // get their own connection pool, so driver statement caches do not outlive tables recreated by other scenarios.
-func startContainer(kind string) func(t *gotesting.T) func(t *gotesting.T) *sql.DB {
-	return func(t *gotesting.T) func(t *gotesting.T) *sql.DB {
+func startContainer(kind string) func(t *gotesting.T) func(t *gotesting.T) scenarioConn {
+	return func(t *gotesting.T) func(t *gotesting.T) scenarioConn {
 		ctx, cancel := context.WithTimeout(context.Background(), containerStartTimeout)
 		defer cancel()
 		tdb, err := testing.RunTestDB(ctx, kind)
@@ -121,12 +127,8 @@ func startContainer(kind string) func(t *gotesting.T) func(t *gotesting.T) *sql.
 			defer stopCancel()
 			require.NoError(t, tdb.Stop(stopCtx))
 		})
-		return func(t *gotesting.T) *sql.DB {
-			db, err := sql.Open(tdb.DriverName, tdb.DSN)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, db.Close()) })
-			require.NoError(t, db.Ping())
-			return db
+		return func(*gotesting.T) scenarioConn {
+			return scenarioConn{driverName: tdb.DriverName, dsn: tdb.DSN}
 		}
 	}
 }
@@ -136,8 +138,8 @@ type integrationScenario struct {
 	run  func(t *gotesting.T, e *integrationEnv)
 }
 
-func integrationScenarios() []integrationScenario {
-	return append([]integrationScenario{
+func integrationScenarios(b integrationBackend) []integrationScenario {
+	scenarios := []integrationScenario{
 		{"Lifecycle", testLifecycle},
 		{"FailedUpDML", testFailedUpDML},
 		{"FailedDownDML", testFailedDownDML},
@@ -146,7 +148,10 @@ func integrationScenarios() []integrationScenario {
 		{"RawTxFlags", testRawTxFlags},
 		{"MetadataWriteFailure", testMetadataWriteFailure},
 		{"MetadataWriteFailureNoTx", testMetadataWriteFailureNoTx},
-	}, legacyHistoryScenarios()...)
+		{"UpgradeFromArtifact", testUpgradeFromArtifact},
+	}
+	scenarios = append(scenarios, historyEdgeScenarios()...)
+	return append(scenarios, metadataSchemaScenarios(b)...)
 }
 
 var tableSeq atomic.Int64
@@ -156,21 +161,26 @@ var fixtureTables = []string{"ref", "users", "items", "created", "fixture"}
 
 // integrationEnv is the state of one scenario run with one metadata table variant.
 type integrationEnv struct {
-	t         *gotesting.T
-	b         integrationBackend
-	db        *sql.DB
-	mm        *migrate.MigrationsManager
-	metaTable string
-	replacer  *strings.Replacer
+	t          *gotesting.T
+	b          integrationBackend
+	conn       scenarioConn
+	db         *sql.DB
+	mm         *migrate.MigrationsManager
+	mmOpts     migrate.MigrationsManagerOpts
+	metaTable  string
+	prefix     string
+	replacer   *strings.Replacer
+	extraDrops []string // Additional tables dropped on cleanup, e.g. fixture source names.
 }
 
 // newIntegrationEnv creates the environment. Tables get a unique prefix; "{name}" in SQL refers to them and "{meta}" to
 // the metadata table. Dropping all of them is registered before the scenario runs and does not depend on Down migrations.
-func newIntegrationEnv(t *gotesting.T, b integrationBackend, db *sql.DB, customMetaTable string) *integrationEnv {
+func newIntegrationEnv(t *gotesting.T, b integrationBackend, conn scenarioConn, customMetaTable string) *integrationEnv {
 	prefix := fmt.Sprintf("it%d_", tableSeq.Add(1))
-	e := &integrationEnv{t: t, b: b, db: db, metaTable: migrate.MigrationsTableName}
+	e := &integrationEnv{t: t, b: b, conn: conn, metaTable: migrate.MigrationsTableName, prefix: prefix}
 	if customMetaTable != "" {
 		e.metaTable = prefix + customMetaTable
+		e.mmOpts.TableName = e.metaTable
 	}
 	pairs := []string{"{meta}", e.metaTable}
 	for _, name := range fixtureTables {
@@ -178,25 +188,57 @@ func newIntegrationEnv(t *gotesting.T, b integrationBackend, db *sql.DB, customM
 	}
 	e.replacer = strings.NewReplacer(pairs...)
 
+	e.open()
+	t.Cleanup(func() { require.NoError(t, e.db.Close()) })
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 		defer cancel()
-		for _, name := range append(append([]string{}, fixtureTables...), "meta") {
-			table := e.q("{" + name + "}")
-			if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+		tables := make([]string, 0, len(fixtureTables)+1+len(e.extraDrops))
+		for _, name := range fixtureTables {
+			tables = append(tables, e.q("{"+name+"}"))
+		}
+		tables = append(append(tables, e.metaTable), e.extraDrops...)
+		for _, table := range tables {
+			if _, err := e.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 				t.Errorf("drop table %s: %v", table, err)
 			}
 		}
 	})
-
-	opts := migrate.MigrationsManagerOpts{}
-	if customMetaTable != "" {
-		opts.TableName = e.metaTable
-	}
-	var err error
-	e.mm, err = migrate.NewMigrationsManagerWithOpts(db, b.dialect, logtest.NewLogger(), opts)
-	require.NoError(t, err)
 	return e
+}
+
+// open opens the scenario connection pool and creates the manager.
+func (e *integrationEnv) open() {
+	e.t.Helper()
+	db, err := sql.Open(e.conn.driverName, e.conn.dsn)
+	require.NoError(e.t, err)
+	require.NoError(e.t, db.Ping())
+	e.db = db
+	e.mm = e.newManager(e.mmOpts)
+}
+
+func (e *integrationEnv) newManager(opts migrate.MigrationsManagerOpts) *migrate.MigrationsManager {
+	e.t.Helper()
+	mm, err := migrate.NewMigrationsManagerWithOpts(e.db, e.b.dialect, logtest.NewLogger(), opts)
+	require.NoError(e.t, err)
+	return mm
+}
+
+// reopen replaces the connection pool, e.g. after recreating a table with other column types: pgx caches statements
+// per connection and fails with "cached plan must not change result type" when result types change.
+func (e *integrationEnv) reopen() {
+	e.t.Helper()
+	require.NoError(e.t, e.db.Close())
+	e.open()
+}
+
+// session opens a pool limited to one connection, for statements changing session state. The caller closes it.
+func (e *integrationEnv) session() *sql.DB {
+	e.t.Helper()
+	db, err := sql.Open(e.conn.driverName, e.conn.dsn)
+	require.NoError(e.t, err)
+	db.SetMaxOpenConns(1)
+	return db
 }
 
 // q expands table placeholders in a query.
@@ -275,7 +317,13 @@ func (e *integrationEnv) tableExists(table string) bool {
 // users returns the content of the users fixture table.
 func (e *integrationEnv) users() map[int]string {
 	e.t.Helper()
-	rows, err := e.db.Query(e.q("SELECT id, name FROM {users}"))
+	return e.queryNames("SELECT id, name FROM {users}")
+}
+
+// queryNames returns rows of an (id, string) query as a map.
+func (e *integrationEnv) queryNames(query string) map[int]string {
+	e.t.Helper()
+	rows, err := e.db.Query(e.q(query))
 	require.NoError(e.t, err)
 	defer func() { require.NoError(e.t, rows.Close()) }()
 	res := map[int]string{}
@@ -542,38 +590,61 @@ func testMetadataWriteFailureNoTx(t *gotesting.T, e *integrationEnv) {
 
 // runMetadataWriteFailure makes history writes fail after successful DML. The metadata table is created by the test with
 // a CHECK constraint rejecting the 3blocked row; a foreign key from the ref table prevents deleting the 2referenced row.
+// Each run has a successful predecessor and an eligible successor, so stopping at the failure is observable.
 func runMetadataWriteFailure(t *gotesting.T, e *integrationEnv, disableTx bool) {
 	e.exec(fmt.Sprintf("CREATE TABLE {meta} (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at %s, CHECK (id <> '3blocked'))",
-		legacyAppliedAtType(e.b.dialect)))
+		e.b.timestampType))
 	mig := func(id string, up, down []string) migrate.Migration {
 		if disableTx {
 			return e.noTxMig(id, up, down)
 		}
 		return e.mig(id, up, down)
 	}
-	migs := []migrate.Migration{
-		e.mig("1create", []string{createUsersSQL}, []string{"DROP TABLE {users}"}),
-		mig("2referenced", []string{insertUser(2, "b")}, []string{"DELETE FROM {users} WHERE id = 2"}),
-		mig("3blocked", []string{insertUser(3, "c")}, []string{"DELETE FROM {users} WHERE id = 3"}),
+	migrations := func(up3 []string) []migrate.Migration {
+		return []migrate.Migration{
+			e.mig("1create", []string{createUsersSQL}, []string{"DROP TABLE {users}"}),
+			mig("2referenced", []string{insertUser(2, "b")}, []string{"DELETE FROM {users} WHERE id = 2"}),
+			mig("3blocked", up3, []string{"DELETE FROM {users} WHERE id = 3"}),
+			mig("4after", []string{insertUser(4, "d")}, []string{"DELETE FROM {users} WHERE id = 4"}),
+		}
 	}
 
-	err := e.up(migs...)
-	require.ErrorContains(t, err, "3blocked")
+	// INSERT failure: 2referenced stays committed, 3blocked fails, 4after does not run.
+	err := e.up(migrations([]string{insertUser(3, "c")})...)
+	require.ErrorContains(t, err, "handling 3blocked")
 	e.requireHistory("1create", "2referenced")
 	if disableTx {
-		e.requireUsers(map[int]string{2: "b", 3: "c"})
+		e.requireUsers(map[int]string{2: "b", 3: "c"}) // DML of 3blocked persists.
 	} else {
 		e.requireUsers(map[int]string{2: "b"})
 	}
 
+	// Repair: recreate the metadata table without the CHECK constraint, keeping the history.
+	e.exec(fmt.Sprintf("CREATE TABLE {created} (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at %s)", e.b.timestampType))
+	e.exec("INSERT INTO {created} (id, applied_at) SELECT id, applied_at FROM {meta}")
+	e.exec("DROP TABLE {meta}")
+	e.renameTable(e.q("{created}"), e.metaTable)
+	// The corrected 3blocked is safe after a partial run without a transaction.
+	fixed := migrations([]string{"DELETE FROM {users} WHERE id = 3", insertUser(3, "c")})
+	require.NoError(t, e.up(fixed...))
+	e.requireHistory("1create", "2referenced", "3blocked", "4after")
+	e.requireUsers(map[int]string{2: "b", 3: "c", 4: "d"})
+
+	// DELETE failure without a limit: 4after and 3blocked are rolled back, 2referenced fails, 1create does not run.
 	e.exec("CREATE TABLE {ref} (migration_id VARCHAR(255) NOT NULL, FOREIGN KEY (migration_id) REFERENCES {meta} (id))")
 	e.exec("INSERT INTO {ref} (migration_id) VALUES ('2referenced')")
-	err = e.mm.RunLimit(migs, migrate.MigrationsDirectionDown, 1)
-	require.ErrorContains(t, err, "2referenced")
+	err = e.down(fixed...)
+	require.ErrorContains(t, err, "handling 2referenced")
 	e.requireHistory("1create", "2referenced")
 	if disableTx {
-		e.requireUsers(map[int]string{3: "c"})
+		e.requireUsers(map[int]string{}) // DML of 2referenced persists.
 	} else {
 		e.requireUsers(map[int]string{2: "b"})
 	}
+
+	// Repair the reference and retry; the down SQL of 2referenced is safe when its row is already gone.
+	e.exec("DELETE FROM {ref}")
+	require.NoError(t, e.down(fixed...))
+	e.requireHistory()
+	require.False(t, e.tableExists("{users}"))
 }

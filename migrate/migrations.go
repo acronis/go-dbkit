@@ -290,8 +290,8 @@ func (mm *MigrationsManager) run(migrations []*RawMigration, direction Migration
 	if err != nil {
 		return 0, err
 	}
-	if err := store.ensureTable(ctx); err != nil {
-		return 0, err
+	if prepErr := store.prepare(ctx); prepErr != nil {
+		return 0, prepErr
 	}
 	records, err := store.list(ctx)
 	if err != nil {
@@ -317,7 +317,7 @@ func (mm *MigrationsManager) Status() (MigrationStatus, error) {
 	if err != nil {
 		return migStatus, fmt.Errorf("get applied migrations: %w", err)
 	}
-	if err = store.ensureTable(ctx); err != nil {
+	if err = store.prepare(ctx); err != nil {
 		return migStatus, fmt.Errorf("get applied migrations: %w", err)
 	}
 	appliedMigRecords, err := store.list(ctx)

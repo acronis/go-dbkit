@@ -13,107 +13,45 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/acronis/go-dbkit"
 	"github.com/acronis/go-dbkit/migrate"
 )
 
-// legacyCreateTable returns the metadata table DDL executed by previous versions of the package, which used
-// sql-migrate v1.0.0 with gorp v1.7.2. Statements are copied verbatim with the table name substituted.
-// They are not derived from the current implementation in dialect.go.
-//
-// Column types: id is varchar(255) (text on PostgreSQL); applied_at is datetime (timestamp with time zone on PostgreSQL).
-// MySQL adds engine=InnoDB charset=UTF8. MSSQL checks information_schema and does not quote the table name.
-//
-// Reproduction, in a temporary module outside this repository: for each sql-migrate MigrationDialects entry, create
-// gorp.DbMap{Dialect: d} over a database/sql driver that records executed statements, call
-// AddTableWithNameAndSchema(MigrationRecord{}, "", table).SetKeys(false, "Id") and CreateTablesIfNotExists,
-// and print the recorded statement.
-func legacyCreateTable(dialect dbkit.Dialect, table string) string {
-	switch dialect {
-	case dbkit.DialectSQLite:
-		return fmt.Sprintf(`create table if not exists "%s" ("id" varchar(255) not null primary key, "applied_at" datetime) ;`, table)
-	case dbkit.DialectPostgres, dbkit.DialectPgx: // Both drivers share the PostgreSQL fixture.
-		return fmt.Sprintf(`create table if not exists "%s" ("id" text not null primary key, "applied_at" timestamp with time zone) ;`,
-			table)
-	case dbkit.DialectMySQL:
-		return fmt.Sprintf("create table if not exists `%s` (`id` varchar(255) not null primary key, `applied_at` datetime)"+
-			"  engine=InnoDB charset=UTF8;", table)
-	case dbkit.DialectMSSQL:
-		return fmt.Sprintf(`if not exists (select * from information_schema.tables where table_name = '%[1]s') `+
-			`create table %[1]s ("id" varchar(255) not null primary key, "applied_at" datetime) ;`, table)
-	default:
-		panic("unknown dialect " + dialect)
-	}
-}
-
-// legacyAppliedAtType returns the applied_at column type of legacyCreateTable.
-func legacyAppliedAtType(dialect dbkit.Dialect) string {
-	switch dialect {
-	case dbkit.DialectPostgres, dbkit.DialectPgx:
-		return "timestamp with time zone"
-	default:
-		return "datetime"
-	}
-}
-
-func legacyHistoryScenarios() []integrationScenario {
+// History edge cases. They write history rows directly into a metadata table created by the current package;
+// upgrade provenance is covered by testUpgradeFromArtifact.
+func historyEdgeScenarios() []integrationScenario {
 	return []integrationScenario{
-		{"LegacyHistory", testLegacyHistory},
-		{"LegacyNullAppliedAt", testLegacyNullAppliedAt},
-		{"LegacyUnknownAppliedID", testLegacyUnknownAppliedID},
-		{"LegacyCatchUpGap", testLegacyCatchUpGap},
+		{"HistoryNullAppliedAt", testHistoryNullAppliedAt},
+		{"HistoryUnknownAppliedID", testHistoryUnknownAppliedID},
+		{"HistoryCatchUpUp", testHistoryCatchUpUp},
+		{"HistoryCatchUpDown", testHistoryCatchUpDown},
 	}
 }
 
-// createLegacyHistory creates the metadata table as previous versions did and inserts records.
-// A zero time is stored as NULL.
-func (e *integrationEnv) createLegacyHistory(records ...legacyRecord) {
+// insertHistory writes a history row; a zero time is stored as NULL. The metadata table is created first.
+func (e *integrationEnv) insertHistory(id string, appliedAt time.Time) {
 	e.t.Helper()
-	e.exec(legacyCreateTable(e.b.dialect, e.metaTable))
-	for _, rec := range records {
-		var appliedAt any
-		if !rec.appliedAt.IsZero() {
-			appliedAt = rec.appliedAt
-		}
-		e.exec(fmt.Sprintf("INSERT INTO {meta} (id, applied_at) VALUES (%s, %s)", e.b.placeholder(1), e.b.placeholder(2)),
-			rec.id, appliedAt)
+	e.status()
+	var value any
+	if !appliedAt.IsZero() {
+		value = appliedAt
 	}
+	e.exec(fmt.Sprintf("INSERT INTO {meta} (id, applied_at) VALUES (%s, %s)", e.b.placeholder(1), e.b.placeholder(2)), id, value)
 }
 
-type legacyRecord struct {
-	id        string
-	appliedAt time.Time
-}
-
-// testLegacyHistory reads and extends history written by the previous implementation without replaying it.
-func testLegacyHistory(t *gotesting.T, e *integrationEnv) {
-	createdAt := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
-	seededAt := createdAt.Add(time.Hour)
-	e.createLegacyHistory(legacyRecord{"1create", createdAt}, legacyRecord{"2seed", seededAt})
-	e.exec(createUsersSQL)
-	e.exec(insertUser(1, "alice"))
-	e.exec(insertUser(2, "bob"))
-
-	migs := lifecycleMigrations(e)
-	require.NoError(t, e.up(migs...)) // Replaying 1create would fail since the table exists.
-	e.requireHistory("1create", "2seed", "10rename")
-	e.requireUsers(map[int]string{1: "alice", 2: "carol"})
+// requireAppliedAt checks that the history row keeps the given timestamp.
+func (e *integrationEnv) requireAppliedAt(id string, want time.Time) {
+	e.t.Helper()
 	for _, m := range e.status() {
-		switch m.ID {
-		case "1create":
-			requireTimeNear(t, createdAt, m.AppliedAt)
-		case "2seed":
-			requireTimeNear(t, seededAt, m.AppliedAt)
+		if m.ID == id {
+			require.True(e.t, want.Equal(m.AppliedAt), "applied_at of %s: want %v, got %v", id, want, m.AppliedAt)
+			return
 		}
 	}
-
-	require.NoError(t, e.down(migs...))
-	e.requireHistory()
-	require.False(t, e.tableExists("{users}"))
+	e.t.Fatalf("migration %s is not applied", id)
 }
 
-func testLegacyNullAppliedAt(t *gotesting.T, e *integrationEnv) {
-	e.createLegacyHistory(legacyRecord{id: "1create"})
+func testHistoryNullAppliedAt(t *gotesting.T, e *integrationEnv) {
+	e.insertHistory("1create", time.Time{})
 	e.exec(createUsersSQL)
 
 	status := e.status()
@@ -124,12 +62,14 @@ func testLegacyNullAppliedAt(t *gotesting.T, e *integrationEnv) {
 	require.NoError(t, e.up(lifecycleMigrations(e)...))
 	e.requireHistory("1create", "2seed", "10rename")
 	e.requireUsers(map[int]string{1: "alice", 2: "carol"})
+	e.requireAppliedAt("1create", time.Time{})
 }
 
-// testLegacyUnknownAppliedID checks that an applied migration missing from the list prevents running any SQL.
-func testLegacyUnknownAppliedID(t *gotesting.T, e *integrationEnv) {
-	now := time.Now().UTC()
-	e.createLegacyHistory(legacyRecord{"1create", now}, legacyRecord{"99unknown", now})
+// testHistoryUnknownAppliedID checks that an applied migration missing from the list prevents running any SQL.
+func testHistoryUnknownAppliedID(t *gotesting.T, e *integrationEnv) {
+	now := time.Now().UTC().Truncate(time.Second)
+	e.insertHistory("1create", now)
+	e.insertHistory("99unknown", now)
 	e.exec(createUsersSQL)
 	migs := lifecycleMigrations(e)
 
@@ -141,31 +81,96 @@ func testLegacyUnknownAppliedID(t *gotesting.T, e *integrationEnv) {
 	e.requireHistory("1create", "99unknown")
 }
 
-// testLegacyCatchUpGap characterizes behavior inherited from sql-migrate: a migration missing in history but ordered
-// before the last applied one is applied first in both directions, and the limit does not count it.
-func testLegacyCatchUpGap(t *gotesting.T, e *integrationEnv) {
-	now := time.Now().UTC()
-	e.createLegacyHistory(legacyRecord{"1create", now}, legacyRecord{"3c", now})
-	e.exec(createUsersSQL)
-	e.exec(insertUser(3, "c"))
-	migs := []migrate.Migration{
-		e.mig("10j", []string{insertUser(10, "j")}, []string{"DELETE FROM {users} WHERE id = 10"}),
-		e.mig("1create", []string{createUsersSQL}, []string{"DROP TABLE {users}"}),
-		e.mig("2b", []string{insertUser(2, "b")}, []string{"DELETE FROM {users} WHERE id = 2"}),
-		e.mig("3c", []string{insertUser(3, "c")}, []string{"DELETE FROM {users} WHERE id = 3"}),
+// Catch-up characterization, inherited from sql-migrate v1.0.0: migrations missing from the history but ordered before
+// the last applied one ("gaps") run their up SQL first, in both directions, and the limit does not count them.
+// On down a gap is not recorded in the history, and the down plan walks all migrations ordered before the last applied
+// one, including gaps. Every migration appends a marker row whose id is the next sequence number, so the markers
+// show the execution order.
+
+var catchUpAppliedAt = time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
+
+func catchUpMigrations(e *integrationEnv) []migrate.Migration {
+	ids := []string{"7g", "1a", "2b", "3c", "4d", "5e", "6f"} // Unsorted on purpose.
+	migs := make([]migrate.Migration, 0, len(ids))
+	for _, id := range ids {
+		migs = append(migs, e.mig(id, []string{markerSQL(id + "-up")}, []string{markerSQL(id + "-down")}))
 	}
+	return migs
+}
 
+func markerSQL(marker string) string {
+	return fmt.Sprintf("INSERT INTO {items} (id, note) SELECT COALESCE(MAX(id), 0) + 1, '%s' FROM {items}", marker)
+}
+
+// resetCatchUp creates the marker table and the history 1a, 3c, 5e: gaps 2b and 4d, pending 6f and 7g.
+func (e *integrationEnv) resetCatchUp() {
+	e.t.Helper()
+	e.exec("DROP TABLE IF EXISTS {items}")
+	e.exec("CREATE TABLE {items} (id INT NOT NULL PRIMARY KEY, note VARCHAR(100) NOT NULL)")
+	e.status()
+	e.exec("DELETE FROM {meta}")
+	for _, id := range []string{"1a", "3c", "5e"} {
+		e.insertHistory(id, catchUpAppliedAt)
+	}
+}
+
+// markers returns marker rows in execution order.
+func (e *integrationEnv) markers() []string {
+	e.t.Helper()
+	rows, err := e.db.Query(e.q("SELECT note FROM {items} ORDER BY id"))
+	require.NoError(e.t, err)
+	defer func() { require.NoError(e.t, rows.Close()) }()
+	res := []string{}
+	for rows.Next() {
+		var note string
+		require.NoError(e.t, rows.Scan(&note))
+		res = append(res, note)
+	}
+	require.NoError(e.t, rows.Err())
+	return res
+}
+
+func (e *integrationEnv) requireRetainedAppliedAt(ids ...string) {
+	e.t.Helper()
+	for _, id := range ids {
+		e.requireAppliedAt(id, catchUpAppliedAt)
+	}
+}
+
+func testHistoryCatchUpUp(t *gotesting.T, e *integrationEnv) {
+	migs := catchUpMigrations(e)
+
+	e.resetCatchUp()
 	require.NoError(t, e.mm.RunLimit(migs, migrate.MigrationsDirectionUp, 1))
-	e.requireHistory("1create", "2b", "3c", "10j")
-	e.requireUsers(map[int]string{2: "b", 3: "c", 10: "j"})
+	require.Equal(t, []string{"2b-up", "4d-up", "6f-up"}, e.markers()) // Gaps first; the limit counts 6f only.
+	e.requireHistory("1a", "2b", "3c", "4d", "5e", "6f")
+	e.requireRetainedAppliedAt("1a", "3c", "5e")
 
-	// Recreate the gap.
-	e.exec("DELETE FROM {users} WHERE id = 2")
-	e.exec("DELETE FROM {meta} WHERE id = '2b'")
+	e.resetCatchUp()
+	require.NoError(t, e.mm.RunLimit(migs, migrate.MigrationsDirectionUp, 0))
+	require.Equal(t, []string{"2b-up", "4d-up", "6f-up", "7g-up"}, e.markers())
+	e.requireHistory("1a", "2b", "3c", "4d", "5e", "6f", "7g")
+	e.requireRetainedAppliedAt("1a", "3c", "5e")
+}
 
-	// On Down the catch-up step runs its Up SQL but, as in sql-migrate v1.0.0, deletes its history row instead of
-	// inserting it, so 2b stays missing from the history although its Up SQL was applied.
+func testHistoryCatchUpDown(t *gotesting.T, e *integrationEnv) {
+	migs := catchUpMigrations(e)
+
+	e.resetCatchUp()
 	require.NoError(t, e.mm.RunLimit(migs, migrate.MigrationsDirectionDown, 1))
-	e.requireHistory("1create", "3c")
-	e.requireUsers(map[int]string{2: "b", 3: "c"})
+	// Gap up SQL runs but the gaps are not recorded; the limit counts 5e only; pending 6f and 7g are untouched.
+	require.Equal(t, []string{"2b-up", "4d-up", "5e-down"}, e.markers())
+	e.requireHistory("1a", "3c")
+	e.requireRetainedAppliedAt("1a", "3c")
+
+	// A repeated down reaches the gap 2b: its up SQL runs again as catch-up, then its down SQL after 3c.
+	require.NoError(t, e.mm.RunLimit(migs, migrate.MigrationsDirectionDown, 2))
+	require.Equal(t, []string{"2b-up", "4d-up", "5e-down", "2b-up", "3c-down", "2b-down"}, e.markers())
+	e.requireHistory("1a")
+	e.requireRetainedAppliedAt("1a")
+
+	e.resetCatchUp()
+	require.NoError(t, e.mm.RunLimit(migs, migrate.MigrationsDirectionDown, 0))
+	require.Equal(t, []string{"2b-up", "4d-up", "5e-down", "4d-down", "3c-down", "2b-down", "1a-down"}, e.markers())
+	e.requireHistory()
 }

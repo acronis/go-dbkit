@@ -288,9 +288,25 @@ func NewMigration0002CreateNotesTable(dialect dbkit.Dialect) *migrate.CustomMigr
 ## Engine behavior
 
 - Applied migrations are stored in the `migrations` table (configurable with `MigrationsManagerOpts.TableName`) with columns `id` (primary key) and `applied_at` (nullable). Tables created by earlier versions are used as is; applied migrations are not replayed.
+- A new metadata table has the schema created by earlier versions:
+
+  | Dialect | `id` | `applied_at` | Table options |
+  |---|---|---|---|
+  | SQLite | `VARCHAR(255)` | `DATETIME` | |
+  | PostgreSQL (`postgres`, `pgx`) | `TEXT` | `TIMESTAMP WITH TIME ZONE` | |
+  | MySQL, MariaDB | `VARCHAR(255)` | `DATETIME` | `ENGINE=InnoDB DEFAULT CHARSET=utf8mb3` |
+  | MSSQL | `VARCHAR(255)` | `DATETIME` | |
+
+- Before reading the history, `Run`, `RunLimit` and `Status` check the existing metadata table in the database catalogs, on every call. They return an error naming the table, the dialect and the reasons, without running migration SQL or changing the table, when:
+  - `id` or `applied_at` is missing or generated/computed (or an identity column that rejects explicit values);
+  - `id` is not a character string type, is nullable, or has no primary key or unique index on it alone (composite, partial/filtered, expression, prefix-length and disabled indexes do not count);
+  - `applied_at` is not a date and time type (date-only types are rejected);
+  - another column is `NOT NULL` without a default and is not generated, identity or auto-increment (`DEFAULT NULL` is not a default).
+
+  Accepted string types: SQLite `TEXT`/`VARCHAR`/`CHAR`/`CLOB` family; PostgreSQL `text`, `varchar`; MySQL/MariaDB `varchar`, `char`, `text` family; MSSQL `varchar`, `nvarchar`, `char`, `nchar`. Accepted date and time types: SQLite `DATETIME`, `TIMESTAMP`; PostgreSQL `timestamp` with or without time zone; MySQL/MariaDB `datetime`, `timestamp`; MSSQL `datetime`, `datetime2`, `smalldatetime`, `datetimeoffset`. Column order, extra optional columns, constraint names, engine and charset are not checked. Use a separate history table (`MigrationsManagerOpts.TableName`) when the existing table is incompatible. The check does not detect triggers, `CHECK` or foreign key constraints, permission changes or concurrent DDL.
 - Migrations are ordered by the numeric ID prefix, then lexicographically. IDs with a numeric prefix go before others.
 - Each migration and its metadata update run in one transaction. A migration implementing `TxDisabler` runs outside a transaction; its metadata is recorded only after all statements succeed.
-- Migrations absent from the history but ordered before the last applied one are applied first, in both directions, and are not counted in `limit`. On `down` such a migration runs its up SQL but is not recorded in the history (inherited from sql-migrate v1.0.0).
+- Migrations absent from the history but ordered before the last applied one ("gaps") run their up SQL first, in both directions, and are not counted in `limit`. Inherited from sql-migrate v1.0.0: on `down` a gap is not recorded in the history, and the down plan walks all migrations ordered before the last applied one, including gaps, so a later `down` that reaches a gap runs its up SQL again as catch-up and then its down SQL.
 - A migration recorded in the database but missing from the passed list fails the run.
 - Statements are executed one by one; a trailing line break, space, or `;` is trimmed.
 - `applied_at` is written in UTC.
@@ -323,7 +339,7 @@ func (m *Migration0003) RawMigration(self migrate.Migration) (*migrate.RawMigrat
 
 - `RawMigrator.RawMigration` returns `*migrate.RawMigration` instead of `*sql-migrate.Migration`. Replace `migrate.ParseMigration` (`-- +migrate Up/Down` comments) with explicit `UpSQL`/`DownSQL`; `+migrate NoTransaction` maps to `DisableTransactionUp/Down`.
 - The `parseTime` check on MySQL is no longer done on every run, only `Status` needs it.
-- New metadata tables use `VARCHAR(255)` / `DATETIME` (`TIMESTAMP WITH TIME ZONE` on PostgreSQL) without explicit engine and charset on MySQL.
+- An existing metadata table is checked before every run; an incompatible table (see above) fails the run before migration SQL. sql-migrate failed such tables only when reading them (`SELECT *` into its record type) or when writing the history after the migration SQL.
 - A `NULL` `applied_at` is returned as zero time instead of failing.
 - An unknown direction error reports the direction value.
 - `applied_at` is written in UTC. sql-migrate wrote the local time; on MSSQL (`DATETIME`, no time zone) it was read back as UTC, shifted by the host offset. Existing rows are not changed.
@@ -341,7 +357,7 @@ With the transaction disabled (`TxDisabler`, `DisableTransactionUp/Down`), state
 
 ## Testing
 
-`TestMigrationsManagerIntegration` runs the same scenarios (lifecycle, failed up/down, DDL, transaction opt-out, metadata write failure, legacy history) against SQLite, MySQL 8.4, MariaDB 11.4, PostgreSQL 16 via `postgres` and `pgx`, and SQL Server 2022, each with the default and a custom metadata table.
+`TestMigrationsManagerIntegration` runs the same scenarios against SQLite, MySQL 8.4, MariaDB 11.4, PostgreSQL 16 via `postgres` and `pgx`, and SQL Server 2022, each with the default and a custom metadata table: lifecycle, failed up/down DML and DDL, transaction opt-out and raw transaction flags, metadata write failures, upgrade of databases written by the sql-migrate based implementation, history edge cases (NULL `applied_at`, unknown IDs, catch-up), metadata table schema, and compatible/incompatible existing tables.
 
 ```sh
 # Full suite. Requires Docker; server databases run in Testcontainers.
@@ -354,7 +370,7 @@ go test -race -count=1 ./migrate -run '^TestMigrationsManagerIntegration/SQLite$
 - Server backends are required: missing Docker or a failed container start fails the test; nothing is skipped.
 - Image tags are pinned in `internal/testing/db.go`.
 - SQL Server images are x86-64 only (`linux/amd64`). On ARM hosts they run under emulation, which Microsoft does not support; CI runs on Linux x86-64.
-- Legacy metadata table fixtures are copied from sql-migrate v1.0.0 / gorp v1.7.2; reproduction steps are next to `legacyCreateTable`.
+- Upgrade fixtures in [`testdata/upgrade`](testdata/upgrade/README.md) are databases written by the previous implementation (go-dbkit `d3d5fd6`, sql-migrate v1.0.0): a SQLite file and PostgreSQL, MySQL, MariaDB and MSSQL exports. Tests restore them and check their SHA-256; regeneration steps are in that README.
 
 ## License
 

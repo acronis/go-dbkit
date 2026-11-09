@@ -171,37 +171,6 @@ func TestMigrationsManager_disabledTxRecordsMetadataAfterSuccess(t *testing.T) {
 	require.Len(t, status.AppliedMigrations, 2)
 }
 
-func TestMigrationsManager_legacyMetadataTable(t *testing.T) {
-	db := openTestSQLite(t)
-
-	// Table in the shape created by the previous implementation, with a recorded history.
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS "migrations" ("id" varchar(255) not null primary key, "applied_at" datetime)`)
-	require.NoError(t, err)
-	_, err = db.Exec(`CREATE TABLE users (id INT)`)
-	require.NoError(t, err)
-	_, err = db.Exec(`INSERT INTO migrations (id, applied_at) VALUES ('0001', '2024-01-02 03:04:05+00:00')`)
-	require.NoError(t, err)
-
-	mm := newSQLiteManager(t, db)
-	migs := []Migration{
-		NewCustomMigration("0001", []string{"CREATE TABLE users (id INT)"}, []string{"DROP TABLE users"}, nil, nil), // Would fail if replayed.
-		NewCustomMigration("0002", []string{"INSERT INTO users VALUES (1)"}, []string{"DELETE FROM users"}, nil, nil),
-	}
-	require.NoError(t, mm.Run(migs, MigrationsDirectionUp))
-
-	status, err := mm.Status()
-	require.NoError(t, err)
-	require.Len(t, status.AppliedMigrations, 2)
-	require.Equal(t, "0001", status.AppliedMigrations[0].ID)
-	require.Equal(t, 2024, status.AppliedMigrations[0].AppliedAt.Year())
-	require.Equal(t, 1, countRows(t, db, "users"))
-
-	require.NoError(t, mm.Run(migs, MigrationsDirectionDown))
-	status, err = mm.Status()
-	require.NoError(t, err)
-	require.Empty(t, status.AppliedMigrations)
-}
-
 func TestMigrationsManager_unknownDialectAndDirection(t *testing.T) {
 	db := openTestSQLite(t)
 	mm, err := NewMigrationsManager(db, "oracle", logtest.NewLogger())
