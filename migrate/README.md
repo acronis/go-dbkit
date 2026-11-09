@@ -290,9 +290,10 @@ func NewMigration0002CreateNotesTable(dialect dbkit.Dialect) *migrate.CustomMigr
 - Applied migrations are stored in the `migrations` table (configurable with `MigrationsManagerOpts.TableName`) with columns `id` (primary key) and `applied_at` (nullable). Tables created by earlier versions are used as is; applied migrations are not replayed.
 - Migrations are ordered by the numeric ID prefix, then lexicographically. IDs with a numeric prefix go before others.
 - Each migration and its metadata update run in one transaction. A migration implementing `TxDisabler` runs outside a transaction; its metadata is recorded only after all statements succeed.
-- Migrations absent from the history but ordered before the last applied one are applied first, in both directions, and are not counted in `limit`.
+- Migrations absent from the history but ordered before the last applied one are applied first, in both directions, and are not counted in `limit`. On `down` such a migration runs its up SQL but is not recorded in the history (inherited from sql-migrate v1.0.0).
 - A migration recorded in the database but missing from the passed list fails the run.
 - Statements are executed one by one; a trailing line break, space, or `;` is trimmed.
+- `applied_at` is written in UTC.
 - MySQL: `parseTime=true` is required in the DSN for `Status`.
 - `UpFn` / `DownFn` are not supported.
 
@@ -325,6 +326,35 @@ func (m *Migration0003) RawMigration(self migrate.Migration) (*migrate.RawMigrat
 - New metadata tables use `VARCHAR(255)` / `DATETIME` (`TIMESTAMP WITH TIME ZONE` on PostgreSQL) without explicit engine and charset on MySQL.
 - A `NULL` `applied_at` is returned as zero time instead of failing.
 - An unknown direction error reports the direction value.
+- `applied_at` is written in UTC. sql-migrate wrote the local time; on MSSQL (`DATETIME`, no time zone) it was read back as UTC, shifted by the host offset. Existing rows are not changed.
+
+## Transactions
+
+| Operation inside a migration transaction, then a failing statement | SQLite, PostgreSQL (`postgres`, `pgx`), MSSQL | MySQL, MariaDB (InnoDB) |
+|---|---|---|
+| DML | Rolled back | Rolled back |
+| `CREATE TABLE` | Rolled back | Remains: DDL commits implicitly |
+| `DROP TABLE` | Rolled back | Remains dropped |
+| History row | Failed `up`: not inserted. Failed `down`: kept | Same |
+
+With the transaction disabled (`TxDisabler`, `DisableTransactionUp/Down`), statements executed before the failure remain; the history changes only after all statements succeed.
+
+## Testing
+
+`TestMigrationsManagerIntegration` runs the same scenarios (lifecycle, failed up/down, DDL, transaction opt-out, metadata write failure, legacy history) against SQLite, MySQL 8.4, MariaDB 11.4, PostgreSQL 16 via `postgres` and `pgx`, and SQL Server 2022, each with the default and a custom metadata table.
+
+```sh
+# Full suite. Requires Docker; server databases run in Testcontainers.
+go test -race -count=1 -timeout=15m ./migrate -run '^TestMigrationsManagerIntegration$'
+
+# SQLite only. Starts no containers.
+go test -race -count=1 ./migrate -run '^TestMigrationsManagerIntegration/SQLite$'
+```
+
+- Server backends are required: missing Docker or a failed container start fails the test; nothing is skipped.
+- Image tags are pinned in `internal/testing/db.go`.
+- SQL Server images are x86-64 only (`linux/amd64`). On ARM hosts they run under emulation, which Microsoft does not support; CI runs on Linux x86-64.
+- Legacy metadata table fixtures are copied from sql-migrate v1.0.0 / gorp v1.7.2; reproduction steps are next to `legacyCreateTable`.
 
 ## License
 
