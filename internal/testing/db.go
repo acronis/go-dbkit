@@ -121,22 +121,21 @@ func RunTestDB(ctx context.Context, dialect string) (res *TestDB, err error) {
 	startCtx, startCancel := context.WithTimeout(ctx, startupTimeout)
 	defer startCancel()
 
+	var start func(ctx context.Context) (testDB, error)
 	switch dialect {
 	case string(dbkit.DialectPgx), string(dbkit.DialectPostgres):
 		image = PostgresImage
-		tdb, err = startPostgresContainer(startCtx, dialect)
+		start = func(ctx context.Context) (testDB, error) { return startPostgresContainer(ctx, dialect) }
 	case string(dbkit.DialectMySQL):
-		image = MySQLImage
-		tdb, err = startMySQLContainer(startCtx)
+		image, start = MySQLImage, startMySQLContainer
 	case DialectMariaDB:
-		image = MariaDBImage
-		tdb, err = startMariaDBContainer(startCtx)
+		image, start = MariaDBImage, startMariaDBContainer
 	case string(dbkit.DialectMSSQL):
-		image = MSSQLImage
-		tdb, err = startMSSQLContainer(startCtx)
+		image, start = MSSQLImage, startMSSQLContainer
 	default:
 		return nil, fmt.Errorf("unknown sql dialect %s", dialect)
 	}
+	tdb, err = startContainer(startCtx, start)
 
 	terminate := func(ctx context.Context) error {
 		return testcontainers.TerminateContainer(tdb.container, testcontainers.StopContext(ctx))
@@ -175,6 +174,17 @@ func RunTestDB(ctx context.Context, dialect string) (res *TestDB, err error) {
 		return nil, fmt.Errorf("close db: %w", err)
 	}
 	return &TestDB{DriverName: tdb.driverName, DSN: dsn, Stop: terminate}, nil
+}
+
+// startContainer runs start and returns a Testcontainers panic as an error, so the caller fails with the backend and
+// image in the message. Testcontainers panics, for example, when no Docker host is found.
+func startContainer(ctx context.Context, start func(ctx context.Context) (testDB, error)) (tdb testDB, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("testcontainers panic: %v", p)
+		}
+	}()
+	return start(ctx)
 }
 
 // openAndPing opens a connection pool and retries PingContext until it succeeds or ctx is done.
