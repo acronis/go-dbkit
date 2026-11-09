@@ -17,9 +17,11 @@ jobs:
     strategy:
       matrix:
         go: [ '1.26' ]
-        os: [ ubuntu-latest ]
+        # Linux x86-64: SQL Server test containers have no ARM images.
+        os: [ ubuntu-24.04 ]
       fail-fast: true
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -35,7 +37,9 @@ jobs:
         run: go mod download
 
       - name: Run tests with coverage
-        run: go test -race -cover -coverprofile="coverage.out" -covermode=atomic -v --coverpkg=./... ./...
+        # Packages run serially (-p 1) so database containers do not overlap.
+        timeout-minutes: 25
+        run: go test -race -count=1 -p 1 -timeout=20m -cover -coverprofile="coverage.out" -covermode=atomic -v --coverpkg=./... ./...
 
       - name: Exclude examples from coverage
         run: grep -Ev '/examples/' ./coverage.out > ./coverage_filtered.out && mv -f ./coverage_filtered.out ./coverage.out

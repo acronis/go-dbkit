@@ -215,6 +215,10 @@ github.com/testcontainers/testcontainers-go v0.44.0 h1:/Fwh6HY1mIikhnm9e7HwoxGyc
 github.com/testcontainers/testcontainers-go v0.44.0/go.mod h1:IcnwQrYTO86xHXu5bvMaBH7ATlbS3Qn1M1QWW3c66rE=
 github.com/testcontainers/testcontainers-go/modules/mariadb v0.44.0 h1:tiQ6mPa+Q1Cp79xXxKxy0EDftUvrsGulYEYFbPc6H7g=
 github.com/testcontainers/testcontainers-go/modules/mariadb v0.44.0/go.mod h1:tepyUQIx4NyelTgbCvnf/C1IuKbG2L99DLKlVBAfc9I=
+github.com/testcontainers/testcontainers-go/modules/mssql v0.44.0 h1:G5EG7RfW6CaP6mjK8vKOuZAbPFwZel2xXATlrRs79kc=
+github.com/testcontainers/testcontainers-go/modules/mssql v0.44.0/go.mod h1:KA3hfwkEFwR9oOb/P+xGilb5MBGCDFIOw2Kjfls51MQ=
+github.com/testcontainers/testcontainers-go/modules/mysql v0.44.0 h1:oJPJPxNE6YQ0zlq6mZKh06JOlyimCky4ruQUimdDet4=
+github.com/testcontainers/testcontainers-go/modules/mysql v0.44.0/go.mod h1:MSOAU6ukCpehJVHQDN1k9JgOZXZuqHD+2pT20M3JkIg=
 github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0 h1:8fdv/9y3JMxjQ+ULAcOG8RtgeNu5t9XF9LolSXDuTwM=
 github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0/go.mod h1:CFr2LncGYokw+OKjXcr8ARCKG1SaC2UEnGxFBovE86g=
 github.com/throttled/throttled/v2 v2.15.0 h1:7XLCECtmEx+Yz/e5opBNff9cPGpH0ia0xEj5kyDPotI=

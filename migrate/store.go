@@ -62,21 +62,23 @@ func (s *metadataStore) list(ctx context.Context) ([]metadataRecord, error) {
 	for rows.Next() {
 		var id string
 		var appliedAt sql.NullTime
-		if err = rows.Scan(&id, &appliedAt); err != nil {
+		if err := rows.Scan(&id, &appliedAt); err != nil {
 			return nil, err
 		}
 		records = append(records, metadataRecord{ID: id, AppliedAt: appliedAt.Time})
 	}
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return records, nil
 }
 
+// insert records an applied migration. The time is stored in UTC: columns without time zone (MSSQL DATETIME) keep the
+// wall clock of the passed value and are read back as UTC.
 func (s *metadataStore) insert(ctx context.Context, ex execer, id string, appliedAt time.Time) error {
 	query := fmt.Sprintf("INSERT INTO %s (id, applied_at) VALUES (%s, %s)",
 		s.table, s.dialect.placeholder(1), s.dialect.placeholder(2))
-	_, err := ex.ExecContext(ctx, query, id, appliedAt)
+	_, err := ex.ExecContext(ctx, query, id, appliedAt.UTC())
 	return err
 }
 

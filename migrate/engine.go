@@ -75,42 +75,30 @@ func planMigrations(migrations []*RawMigration, appliedIDs []string, direction M
 		applied[id] = struct{}{}
 	}
 
-	var lastApplied string
-	if len(appliedIDs) > 0 {
-		existing := make([]string, len(appliedIDs))
-		copy(existing, appliedIDs)
-		sort.SliceStable(existing, func(i, j int) bool { return migrationIDLess(existing[i], existing[j]) })
-		lastApplied = existing[len(existing)-1]
-	}
-
+	lastApplied := lastAppliedID(appliedIDs)
 	plan := make([]plannedMigration, 0, len(sorted))
-	if len(appliedIDs) > 0 {
-		for _, m := range sorted {
-			if _, ok := applied[m.ID]; !ok && migrationIDLess(m.ID, lastApplied) {
-				plan = append(plan, plannedMigration{id: m.ID, queries: m.UpSQL, disableTx: m.DisableTransactionUp})
-			}
+	lastIdx := -1 // Position of the last applied migration.
+	for i, m := range sorted {
+		if lastApplied == "" {
+			break
 		}
-	}
-
-	// Position of the last applied migration.
-	idx := -1
-	if lastApplied != "" {
-		for i, m := range sorted {
-			if m.ID == lastApplied {
-				idx = i
-				break
-			}
+		if m.ID == lastApplied {
+			lastIdx = i
+			break
+		}
+		if _, ok := applied[m.ID]; !ok {
+			plan = append(plan, upStep(m))
 		}
 	}
 
 	var toApply []plannedMigration
 	switch direction {
 	case MigrationsDirectionUp:
-		for _, m := range sorted[idx+1:] {
-			toApply = append(toApply, plannedMigration{id: m.ID, queries: m.UpSQL, disableTx: m.DisableTransactionUp})
+		for _, m := range sorted[lastIdx+1:] {
+			toApply = append(toApply, upStep(m))
 		}
 	case MigrationsDirectionDown:
-		for i := idx; i >= 0; i-- {
+		for i := lastIdx; i >= 0; i-- {
 			m := sorted[i]
 			toApply = append(toApply, plannedMigration{id: m.ID, queries: m.DownSQL, disableTx: m.DisableTransactionDown})
 		}
@@ -123,10 +111,27 @@ func planMigrations(migrations []*RawMigration, appliedIDs []string, direction M
 	return append(plan, toApply...), nil
 }
 
+func upStep(m *RawMigration) plannedMigration {
+	return plannedMigration{id: m.ID, queries: m.UpSQL, disableTx: m.DisableTransactionUp}
+}
+
+// lastAppliedID returns the greatest applied ID in migration order or an empty string.
+func lastAppliedID(appliedIDs []string) string {
+	var last string
+	for _, id := range appliedIDs {
+		if last == "" || migrationIDLess(last, id) {
+			last = id
+		}
+	}
+	return last
+}
+
 // executePlan runs planned migrations one by one and returns the number of applied ones.
 // Every migration and its metadata update run in a single transaction unless the transaction is disabled for it.
 // A migration with disabled transaction updates metadata only after its statements succeed.
-func executePlan(ctx context.Context, db *sql.DB, store *metadataStore, plan []plannedMigration, direction MigrationsDirection) (int, error) {
+func executePlan(
+	ctx context.Context, db *sql.DB, store *metadataStore, plan []plannedMigration, direction MigrationsDirection,
+) (int, error) {
 	applied := 0
 	for _, pm := range plan {
 		if err := executeMigration(ctx, db, store, pm, direction); err != nil {

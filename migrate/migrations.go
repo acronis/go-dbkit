@@ -290,7 +290,7 @@ func (mm *MigrationsManager) run(migrations []*RawMigration, direction Migration
 	if err != nil {
 		return 0, err
 	}
-	if err = store.ensureTable(ctx); err != nil {
+	if err := store.ensureTable(ctx); err != nil {
 		return 0, err
 	}
 	records, err := store.list(ctx)
@@ -329,7 +329,7 @@ func (mm *MigrationsManager) Status() (MigrationStatus, error) {
 	}
 	migStatus.AppliedMigrations = make([]AppliedMigration, 0, len(appliedMigRecords))
 	for _, migRec := range appliedMigRecords {
-		migStatus.AppliedMigrations = append(migStatus.AppliedMigrations, AppliedMigration{ID: migRec.ID, AppliedAt: migRec.AppliedAt})
+		migStatus.AppliedMigrations = append(migStatus.AppliedMigrations, AppliedMigration(migRec))
 	}
 
 	return migStatus, nil
