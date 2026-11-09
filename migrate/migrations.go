@@ -13,6 +13,7 @@ import (
 	"embed"
 	"fmt"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ type RawMigration struct {
 
 // RawMigrator is an interface that allows to overwrite default generate mechanism for full control on migrations.
 // If RawMigration returns nil, the default mechanism is used.
+// A migration having a RawMigration method with another signature is rejected.
 type RawMigrator interface {
 	RawMigration(m Migration) (*RawMigration, error)
 }
@@ -187,7 +189,16 @@ func (mm *MigrationsManager) Run(migrations []Migration, direction MigrationsDir
 // If migration implements RawMigrator interface, then RawMigration function is used.
 // If migration implements TxDisabler interface, then it may be not in transaction.
 func convertMigration(m Migration) (*RawMigration, error) {
-	if migrator, ok := m.(RawMigrator); ok {
+	migrator, ok := m.(RawMigrator)
+	if !ok {
+		// A RawMigration method with another signature (e.g. returning *migrate.Migration of sql-migrate as in
+		// previous versions) doesn't satisfy RawMigrator and would be silently ignored in favor of UpSQL/DownSQL.
+		if method, found := reflect.TypeOf(m).MethodByName("RawMigration"); found {
+			return nil, fmt.Errorf("migration %s has RawMigration method with incompatible signature %s, "+
+				"expected RawMigration(Migration) (*RawMigration, error)", m.ID(), methodSignature(method))
+		}
+	}
+	if ok {
 		raw, err := migrator.RawMigration(m)
 		if err != nil {
 			return nil, fmt.Errorf("preparing migration %s failed with error: %w", m.ID(), err)
@@ -219,6 +230,28 @@ func convertMigration(m Migration) (*RawMigration, error) {
 		DisableTransactionUp:   disableTx,
 		DisableTransactionDown: disableTx,
 	}, nil
+}
+
+// methodSignature formats a method type without its receiver, e.g. "RawMigration(migrate.Migration) (*migrate.Migration, error)".
+func methodSignature(method reflect.Method) string {
+	t := method.Type
+	in := make([]string, 0, t.NumIn()-1)
+	for i := 1; i < t.NumIn(); i++ { // Skip the receiver.
+		in = append(in, t.In(i).String())
+	}
+	out := make([]string, 0, t.NumOut())
+	for i := 0; i < t.NumOut(); i++ {
+		out = append(out, t.Out(i).String())
+	}
+	sig := method.Name + "(" + strings.Join(in, ", ") + ")"
+	switch len(out) {
+	case 0:
+		return sig
+	case 1:
+		return sig + " " + out[0]
+	default:
+		return sig + " (" + strings.Join(out, ", ") + ")"
+	}
 }
 
 // RunLimit runs at most `limit` migrations. Pass 0 (or MigrationsNoLimit const) for no limit (or use Run).
