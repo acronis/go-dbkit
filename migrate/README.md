@@ -298,7 +298,7 @@ func NewMigration0002CreateNotesTable(dialect dbkit.Dialect) *migrate.CustomMigr
 
 ### Raw migrations
 
-A migration implementing `RawMigrator` replaces the default conversion. Returning `nil` falls back to `UpSQL`/`DownSQL`.
+A migration implementing `RawMigrator` replaces the default conversion. Returning `nil` falls back to `UpSQL`/`DownSQL`. A `RawMigration` method with another signature (e.g. the previous one returning `*migrate.Migration` of sql-migrate) fails the run instead of being ignored.
 
 ```go
 type Migration0003 struct {

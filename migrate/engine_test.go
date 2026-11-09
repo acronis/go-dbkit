@@ -214,3 +214,34 @@ func TestMigrationsManager_unknownDialectAndDirection(t *testing.T) {
 	mm = newSQLiteManager(t, db)
 	require.EqualError(t, mm.Run(migs, "sideways"), `unknown direction "sideways"`)
 }
+
+// legacyRawMigration has the RawMigration method of previous versions, which returned *migrate.Migration of sql-migrate.
+type legacyRawMigration struct {
+	*CustomMigration
+}
+
+type sqlMigrateMigration struct {
+	Id string //nolint:revive // Field name of sql-migrate.
+}
+
+func (m legacyRawMigration) RawMigration(Migration) (*sqlMigrateMigration, error) {
+	return &sqlMigrateMigration{Id: m.ID()}, nil
+}
+
+func TestMigrationsManager_incompatibleRawMigrationSignature(t *testing.T) {
+	db := openTestSQLite(t)
+	mm := newSQLiteManager(t, db)
+	// UpSQL is implemented, so without the check the engine would silently run it instead of the raw migration.
+	mig := legacyRawMigration{NewCustomMigration("0001", []string{"CREATE TABLE t (id INT)"}, []string{"DROP TABLE t"}, nil, nil)}
+
+	err := mm.Run([]Migration{mig}, MigrationsDirectionUp)
+	require.EqualError(t, err, "migration 0001 has RawMigration method with incompatible signature "+
+		"RawMigration(migrate.Migration) (*migrate.sqlMigrateMigration, error), "+
+		"expected RawMigration(Migration) (*RawMigration, error)")
+	var n int
+	require.Error(t, db.QueryRow("SELECT COUNT(*) FROM t").Scan(&n)) // UpSQL wasn't executed.
+
+	status, err := mm.Status()
+	require.NoError(t, err)
+	require.Empty(t, status.AppliedMigrations)
+}
