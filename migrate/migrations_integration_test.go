@@ -104,6 +104,19 @@ var integrationBackends = []integrationBackend{
 		name: "MSSQL", dialect: dbkit.DialectMSSQL, transactionalDDL: true, timestampType: "DATETIME",
 		placeholder: func(n int) string { return "@p" + strconv.Itoa(n) }, start: startContainer(string(dbkit.DialectMSSQL)),
 	},
+	{
+		name: "MSSQLLegacy", dialect: dbkit.DialectMSSQL, transactionalDDL: true, timestampType: "DATETIME",
+		placeholder: func(int) string { return "?" }, start: startLegacyMSSQL,
+	},
+}
+
+func startLegacyMSSQL(t *gotesting.T) func(t *gotesting.T) scenarioConn {
+	newConn := startContainer(string(dbkit.DialectMSSQL))(t)
+	return func(t *gotesting.T) scenarioConn {
+		conn := newConn(t)
+		conn.driverName = "mssql"
+		return conn
+	}
 }
 
 // startSQLite gives every scenario its own database file. Foreign keys are enabled for the metadata write failure scenario.

@@ -96,11 +96,11 @@ WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, table).Scan(&res.engine, &c
 		colQuery = `SELECT c.name, t.name + CASE WHEN t.name IN ('varchar', 'char') THEN '(' + CAST(c.max_length AS VARCHAR) + ')'
 WHEN t.name IN ('nvarchar', 'nchar') THEN '(' + CAST(c.max_length / 2 AS VARCHAR) + ')' ELSE '' END, c.is_nullable
 FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id
-WHERE c.object_id = OBJECT_ID(QUOTENAME(@p1), 'U') ORDER BY c.column_id`
+WHERE c.object_id = OBJECT_ID(QUOTENAME(` + e.b.placeholder(1) + `), 'U') ORDER BY c.column_id`
 		pkQuery = `SELECT c.name FROM sys.indexes i
 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
 JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-WHERE i.object_id = OBJECT_ID(QUOTENAME(@p1), 'U') AND i.is_primary_key = 1 ORDER BY ic.key_ordinal`
+WHERE i.object_id = OBJECT_ID(QUOTENAME(` + e.b.placeholder(1) + `), 'U') AND i.is_primary_key = 1 ORDER BY ic.key_ordinal`
 	}
 
 	rows, err := e.db.Query(colQuery, table)

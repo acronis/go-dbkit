@@ -18,13 +18,11 @@ var (
 	mssqlTimestampTypes = []string{typeDatetime, "datetime2", "smalldatetime", "datetimeoffset"}
 )
 
-// mssqlObject resolves the quoted table name like the manager's SQL, in the default schema of the user.
-const mssqlObject = "OBJECT_ID(@p1, N'U')"
-
-func inspectMSSQL(ctx context.Context, q queryer, table string) (*tableSchema, error) {
+// object resolves the quoted table name in the user's default schema, using the driver's placeholder syntax.
+func inspectMSSQL(ctx context.Context, q queryer, table, object string) (*tableSchema, error) {
 	quoted := "[" + strings.ReplaceAll(table, "]", "]]") + "]"
 	found := false
-	err := collectRows(ctx, q, "SELECT 1 WHERE "+mssqlObject+" IS NOT NULL", func(*sql.Rows) error {
+	err := collectRows(ctx, q, "SELECT 1 WHERE "+object+" IS NOT NULL", func(*sql.Rows) error {
 		found = true
 		return nil
 	}, quoted)
@@ -40,7 +38,7 @@ func inspectMSSQL(ctx context.Context, q queryer, table string) (*tableSchema, e
 	COALESCE(dc.definition, '')
 FROM sys.columns c
 LEFT JOIN sys.default_constraints dc ON dc.object_id = c.default_object_id
-WHERE c.object_id = `+mssqlObject+` ORDER BY c.column_id`, func(rows *sql.Rows) error {
+WHERE c.object_id = `+object+` ORDER BY c.column_id`, func(rows *sql.Rows) error {
 		var name, typeName, dflt string
 		var nullable, computed, identity bool
 		if err := rows.Scan(&name, &typeName, &nullable, &computed, &identity, &dflt); err != nil {
@@ -68,7 +66,7 @@ WHERE c.object_id = `+mssqlObject+` ORDER BY c.column_id`, func(rows *sql.Rows) 
 	err = collectRows(ctx, q, `SELECT i.index_id, COL_NAME(ic.object_id, ic.column_id)
 FROM sys.indexes i
 JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0
-WHERE i.object_id = `+mssqlObject+` AND i.is_unique = 1 AND i.is_disabled = 0 AND i.has_filter = 0
+WHERE i.object_id = `+object+` AND i.is_unique = 1 AND i.is_disabled = 0 AND i.has_filter = 0
 	AND i.is_hypothetical = 0`, func(rows *sql.Rows) error {
 		var indexID int
 		var column string
