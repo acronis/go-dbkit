@@ -40,6 +40,17 @@ func newMetadataStore(db *sql.DB, dialect dbkit.Dialect, tableName string) (*met
 	if err != nil {
 		return nil, err
 	}
+	if dialect == dbkit.DialectMSSQL && db != nil {
+		// The legacy "mssql" registration rewrites ? parameters and rejects native @pN parameters.
+		// sql.Open does not connect; compare registered instances because both registrations have the same type.
+		// If it is not registered, retain native SQL for sqlserver and custom drivers.
+		if legacy, err := sql.Open("mssql", "sqlserver://localhost"); err == nil {
+			if db.Driver() == legacy.Driver() {
+				d = mssqlLegacyDialect
+			}
+			_ = legacy.Close()
+		}
+	}
 	return &metadataStore{db: db, dialect: d, dialectName: dialect, name: tableName, table: d.quote(tableName)}, nil
 }
 

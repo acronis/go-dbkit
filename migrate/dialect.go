@@ -67,18 +67,26 @@ var (
 		createTable: createTableIfNotExists("VARCHAR(255)", "DATETIME", " ENGINE=InnoDB DEFAULT CHARSET=utf8mb3"),
 		inspect:     inspectMySQL,
 	}
-	mssqlDialect = &sqlDialect{
+	mssqlDialect       = newMSSQLDialect(func(n int) string { return "@p" + strconv.Itoa(n) })
+	mssqlLegacyDialect = newMSSQLDialect(questionPlaceholder)
+)
+
+func newMSSQLDialect(placeholder func(int) string) *sqlDialect {
+	object := "OBJECT_ID(" + placeholder(1) + ", N'U')"
+	return &sqlDialect{
 		openQuote:   "[",
 		closeQuote:  "]",
-		placeholder: func(n int) string { return "@p" + strconv.Itoa(n) },
+		placeholder: placeholder,
 		createTable: func(quotedTable string) (string, []any) {
 			return fmt.Sprintf(
-				"IF OBJECT_ID(@p1, N'U') IS NULL CREATE TABLE %s (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME)",
+				"IF "+object+" IS NULL CREATE TABLE %s (id VARCHAR(255) NOT NULL PRIMARY KEY, applied_at DATETIME)",
 				quotedTable), []any{quotedTable}
 		},
-		inspect: inspectMSSQL,
+		inspect: func(ctx context.Context, q queryer, table string) (*tableSchema, error) {
+			return inspectMSSQL(ctx, q, table, object)
+		},
 	}
-)
+}
 
 // lookupSQLDialect returns SQL dialect for the passed one. The pgx dialect uses PostgreSQL SQL.
 func lookupSQLDialect(dialect dbkit.Dialect) (*sqlDialect, error) {

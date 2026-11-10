@@ -115,7 +115,11 @@ func readUpgradeFixture(t *gotesting.T, f upgradeFixture) []byte {
 // so session settings of the dump do not leak into the scenario pool.
 func (e *integrationEnv) restoreUpgradeFixture() upgradeFixture {
 	e.t.Helper()
-	f, ok := upgradeFixtures[e.b.name]
+	backend := e.b.name
+	if backend == "MSSQLLegacy" {
+		backend = "MSSQL" // Both driver registrations use the same server schema and dump.
+	}
+	f, ok := upgradeFixtures[backend]
 	require.True(e.t, ok, "no upgrade fixture for %s", e.b.name)
 	data := readUpgradeFixture(e.t, f)
 	// Source names are dropped on cleanup too, in case restore or rename fails midway.
